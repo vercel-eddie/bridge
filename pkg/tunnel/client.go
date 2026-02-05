@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,18 +60,7 @@ func getEnvOrDefault(key, defaultVal string) string {
 }
 
 // getEnv is a variable so it can be mocked in tests
-var getEnv = func(key string) string {
-	return ""
-}
-
-func init() {
-	// Set up actual env lookup
-	getEnv = func(key string) string {
-		// Use os.Getenv in the actual implementation
-		// This is set up this way to allow testing
-		return ""
-	}
-}
+var getEnv = os.Getenv
 
 // ConnectWithReconnect connects and handles automatic reconnection until context is cancelled.
 func (c *Client) ConnectWithReconnect(ctx context.Context) {
