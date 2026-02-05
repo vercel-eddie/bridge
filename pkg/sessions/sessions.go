@@ -27,7 +27,7 @@ func NewStore() (*Store, error) {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	dir := filepath.Join(home, ".reach")
+	dir := filepath.Join(home, ".bridge")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}

@@ -1,12 +1,21 @@
-# Vercel Remote IDEs
+# Bridge
 
-A simple Go CLI application built with [urfave/cli](https://cli.urfave.org/) that allows you to leverage the persistent
-filesystem of Vercel sandboxes to develop seamlessly with coding agents:
+A set of applications that empowers developers on the Vercel platform to write their code locally, sync their
+files to Vercel Sandbox, and forward/recieve traffic made from/to a Vercel Preview deployment.
 
-## Order of operations
+## API
 
-1. Spins up a Vercel sandbox.
-2. Installs a server-side SSH server in the Sandbox that opens up an HTTP CONNECT tunnel as well as an SSH server.
-3. Exposes the above tunnel via a port to a client.
-4. Client connects to the exposed endpoint via SSH.
-5. When the client session closes, a snapshot of the Sandbox is taken, and everything is cleaned up.
+The API is defined using protocol buffers. Currently, all messages are sent/received via websocket/HTTP but the payloads
+themselves are housed within the [protos directory](./proto).
+
+### Generate
+
+To generate, install [buf](https://buf.build/docs/cli/installation/) and run:
+
+```
+make
+```
+
+## Architecture
+
+See [here](./docs/architecture.md) for more info.

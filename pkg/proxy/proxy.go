@@ -28,7 +28,7 @@ type Config struct {
 	Host   string
 	Port   int
 	Target string // Target address to forward all connections to
-	Name   string // Name of the sandbox (returned in x-reach-name header)
+	Name   string // Name of the sandbox (returned in x-bridge-name header)
 }
 
 // New creates a new HTTP CONNECT proxy server.
@@ -92,7 +92,7 @@ func (p *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if p.name != "" {
-		w.Header().Set("X-Reach-Name", p.name)
+		w.Header().Set("X-Bridge-Name", p.name)
 	}
 	w.WriteHeader(http.StatusOK)
 

@@ -1,0 +1,32 @@
+FROM alpine:3.20
+
+# Install runtime dependencies
+# openssh is needed for mutagen to connect from devcontainer
+# curl and tar are needed for downloading mutagen agent
+# su-exec is Alpine's equivalent of gosu for proper user switching
+RUN apk add --no-cache ca-certificates openssh curl tar su-exec
+
+# Copy the pre-built binary
+COPY bridge /usr/local/bin/bridge
+RUN chmod +x /usr/local/bin/bridge
+
+# Create vercel-sandbox user with home directory /vercel/sandbox (matches real Vercel Sandbox)
+# See: https://vercel.com/docs/vercel-sandbox
+# Make /vercel owned by vercel-sandbox so mutagen can create cache directories
+RUN mkdir -p /vercel && \
+    adduser -D -h /vercel/sandbox -s /bin/sh vercel-sandbox && \
+    chown -R vercel-sandbox:vercel-sandbox /vercel && \
+    chmod 755 /vercel && \
+    chmod 755 /vercel/sandbox
+
+# Expose the default server port and SSH port
+EXPOSE 3000 22
+
+# Run as vercel-sandbox user
+USER vercel-sandbox
+
+# Set working directory to user's home
+WORKDIR /vercel/sandbox
+
+# Default command
+CMD ["bridge", "server"]

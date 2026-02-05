@@ -1,0 +1,17 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/vercel-eddie/bridge/api/go
+plugins:
+  # Go plugins
+  - remote: buf.build/protocolbuffers/go
+    out: api/go
+    opt:
+      - paths=source_relative
+  # TypeScript plugins
+  - remote: buf.build/bufbuild/es
+    out: api/ts
+    opt:
+      - target=js+dts

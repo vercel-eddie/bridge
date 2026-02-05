@@ -1,0 +1,82 @@
+name: Edge Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          output="bridge-${GOOS}-${GOARCH}${ext}"
+          version="edge-$(git rev-parse --short HEAD)"
+          go build -ldflags="-s -w -X main.version=${version}" -o "$output" ./cmd/bridge
+          chmod +x "$output"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bridge-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Delete existing edge release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete edge --yes --cleanup-tag || true
+
+      - name: Create Edge Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: edge
+          name: Edge (Latest Build)
+          prerelease: true
+          body: |
+            This is an automatically generated edge release from the latest commit on main.
+
+            **Commit:** ${{ github.sha }}
+            **Built:** ${{ github.event.head_commit.timestamp }}
+
+            > **Warning:** Edge releases are unstable and may contain bugs. Use at your own risk.
+          files: artifacts/*

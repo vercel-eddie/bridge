@@ -1,0 +1,17 @@
+{
+  "name": "@vercel/bridge-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./bridge/v1/bridge_pb.js",
+  "types": "./bridge/v1/bridge_pb.d.ts",
+  "exports": {
+    ".": {
+      "import": "./bridge/v1/bridge_pb.js",
+      "types": "./bridge/v1/bridge_pb.d.ts"
+    }
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.0.0"
+  }
+}
