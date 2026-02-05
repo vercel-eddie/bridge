@@ -1,0 +1,8 @@
+.vercel
+.env*.local
+
+# Vercel dev tunnel env
+.env.development.local
+
+# Vercel connect devcontainers
+.devcontainers/

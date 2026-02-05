@@ -1,89 +1,178 @@
 package mutagen
 
 import (
-	"context"
-	"os"
+	"fmt"
 	"os/exec"
+	"strings"
+	"time"
 )
 
-// Client is an interface for interacting with the mutagen binary.
-type Client interface {
-	// Sync creates a new sync session.
-	Sync(ctx context.Context, alpha, beta string, opts ...string) error
-
-	// List lists all sync sessions.
-	List(ctx context.Context) ([]byte, error)
-
-	// Terminate terminates a sync session.
-	Terminate(ctx context.Context, session string) error
-
-	// Pause pauses a sync session.
-	Pause(ctx context.Context, session string) error
-
-	// Resume resumes a sync session.
-	Resume(ctx context.Context, session string) error
-
-	// Flush flushes a sync session.
-	Flush(ctx context.Context, session string) error
-
-	// Run executes an arbitrary mutagen command.
-	Run(ctx context.Context, args ...string) ([]byte, error)
-
-	// RunInteractive executes a mutagen command with stdout/stderr attached.
-	RunInteractive(ctx context.Context, args ...string) error
-}
-
-type client struct {
+// Client provides a Go API for interacting with mutagen sync sessions.
+// The mutagen binary must be installed separately using Install() before
+// creating a client.
+type Client struct {
 	binaryPath string
 }
 
+// SyncConfig configures a sync session.
+type SyncConfig struct {
+	// Name is the session name for identification
+	Name string
+	// Source is the local path to sync from
+	Source string
+	// Target is the remote path (e.g., "root@host:/path" or "root@host:port:/path")
+	Target string
+	// IgnoreVCS ignores version control directories
+	IgnoreVCS bool
+	// SyncMode is the sync mode (e.g., "two-way-resolved")
+	SyncMode string
+}
+
 // NewClient creates a new mutagen client.
-// It ensures mutagen is installed before returning.
-func NewClient() (Client, error) {
-	if err := Install(); err != nil {
-		return nil, err
+// Returns an error if mutagen is not installed.
+// Call Install() first to ensure the binary is available.
+func NewClient() (*Client, error) {
+	if !IsInstalled() {
+		return nil, fmt.Errorf("mutagen is not installed; call Install() first")
 	}
-	return &client{binaryPath: BinaryPath()}, nil
+
+	return &Client{
+		binaryPath: BinaryPath(),
+	}, nil
 }
 
-func (c *client) Sync(ctx context.Context, alpha, beta string, opts ...string) error {
-	args := append([]string{"sync", "create", alpha, beta}, opts...)
-	return c.RunInteractive(ctx, args...)
+// CreateSyncSession creates a new sync session with the given configuration.
+func (c *Client) CreateSyncSession(cfg SyncConfig) error {
+	// First, terminate any existing session with this name
+	termCmd := exec.Command(c.binaryPath, "sync", "terminate", cfg.Name)
+	termCmd.Run() // Ignore errors - session might not exist
+
+	args := []string{
+		"sync", "create",
+		"--name", cfg.Name,
+		cfg.Source,
+		cfg.Target,
+	}
+
+	if cfg.IgnoreVCS {
+		args = append(args, "--ignore-vcs")
+	}
+
+	if cfg.SyncMode != "" {
+		args = append(args, fmt.Sprintf("--sync-mode=%s", cfg.SyncMode))
+	}
+
+	cmd := exec.Command(c.binaryPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to create sync session: %w (output: %s)", err, string(output))
+	}
+
+	// Flush to ensure initial sync completes
+	flushCmd := exec.Command(c.binaryPath, "sync", "flush", cfg.Name)
+	if err := flushCmd.Run(); err != nil {
+		return fmt.Errorf("failed to flush sync session: %w", err)
+	}
+
+	return nil
 }
 
-func (c *client) List(ctx context.Context) ([]byte, error) {
-	return c.Run(ctx, "sync", "list")
+// TerminateSyncSession terminates a sync session by name.
+func (c *Client) TerminateSyncSession(name string) error {
+	cmd := exec.Command(c.binaryPath, "sync", "terminate", name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to terminate sync session: %w", err)
+	}
+	return nil
 }
 
-func (c *client) Terminate(ctx context.Context, session string) error {
-	_, err := c.Run(ctx, "sync", "terminate", session)
-	return err
+// FlushSyncSession forces a sync cycle for the named session and waits for it to complete.
+func (c *Client) FlushSyncSession(name string) error {
+	cmd := exec.Command(c.binaryPath, "sync", "flush", name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to flush sync session: %w", err)
+	}
+	return nil
 }
 
-func (c *client) Pause(ctx context.Context, session string) error {
-	_, err := c.Run(ctx, "sync", "pause", session)
-	return err
+// WaitForSyncReady waits for the sync session to be connected and ready.
+func (c *Client) WaitForSyncReady(name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cmd := exec.Command(c.binaryPath, "sync", "list", name)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		// Check if session is watching (ready)
+		outputStr := string(output)
+		if strings.Contains(outputStr, "Watching for changes") {
+			return nil
+		}
+		// Also accept "Scanning files" as a reasonable state
+		if strings.Contains(outputStr, "Scanning files") {
+			return nil
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for sync session to be ready")
 }
 
-func (c *client) Resume(ctx context.Context, session string) error {
-	_, err := c.Run(ctx, "sync", "resume", session)
-	return err
+// PauseSyncSession pauses the named sync session.
+func (c *Client) PauseSyncSession(name string) error {
+	cmd := exec.Command(c.binaryPath, "sync", "pause", name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to pause sync session: %w", err)
+	}
+	return nil
 }
 
-func (c *client) Flush(ctx context.Context, session string) error {
-	_, err := c.Run(ctx, "sync", "flush", session)
-	return err
+// ResumeSyncSession resumes the named sync session.
+func (c *Client) ResumeSyncSession(name string) error {
+	cmd := exec.Command(c.binaryPath, "sync", "resume", name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to resume sync session: %w", err)
+	}
+	return nil
 }
 
-func (c *client) Run(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
-	return cmd.CombinedOutput()
-}
+// GetSyncStatus returns a brief status string for the named sync session.
+func (c *Client) GetSyncStatus(name string) (string, error) {
+	cmd := exec.Command(c.binaryPath, "sync", "list", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get sync status: %w", err)
+	}
 
-func (c *client) RunInteractive(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Extract status and synchronizable contents
+	outputStr := string(output)
+	var status string
+	var alphaContents, betaContents string
+	inAlpha := false
+	inBeta := false
+	for _, line := range strings.Split(outputStr, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Status:") {
+			status = trimmed
+		}
+		if strings.HasPrefix(trimmed, "Alpha:") {
+			inAlpha = true
+			inBeta = false
+		}
+		if strings.HasPrefix(trimmed, "Beta:") {
+			inAlpha = false
+			inBeta = true
+		}
+		if strings.Contains(line, "files") || strings.Contains(line, "symbolic links") {
+			if inAlpha {
+				alphaContents += trimmed + " "
+			} else if inBeta {
+				betaContents += trimmed + " "
+			}
+		}
+	}
+	return fmt.Sprintf("%s | Alpha: %s| Beta: %s", status, alphaContents, betaContents), nil
 }

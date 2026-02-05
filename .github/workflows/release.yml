@@ -39,15 +39,15 @@ jobs:
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          output="reach-${GOOS}-${GOARCH}${ext}"
+          output="bridge-${GOOS}-${GOARCH}${ext}"
           version="${GITHUB_REF#refs/tags/}"
-          go build -ldflags="-s -w -X main.version=${version}" -o "$output" ./cmd/reach
+          go build -ldflags="-s -w -X main.version=${version}" -o "$output" ./cmd/bridge
           chmod +x "$output"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: reach-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: reach-*
+          name: bridge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bridge-*
 
   release:
     needs: build

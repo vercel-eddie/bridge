@@ -1,0 +1,19 @@
+{
+  "name": "Userservice Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  },
+  "forwardPorts": [
+    3000
+  ],
+  "appPort": [
+    3000
+  ]
+}

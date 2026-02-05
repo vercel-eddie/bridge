@@ -1,0 +1,9 @@
+.env
+.env.local
+*.sqlite3
+db.sqlite3
+__pycache__/
+*.pyc
+.git/
+.idea/
+*.log

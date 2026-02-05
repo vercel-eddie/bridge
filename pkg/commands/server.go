@@ -3,13 +3,15 @@ package commands
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/reach/pkg/proxy"
-	"github.com/reach/pkg/sshserver"
 	"github.com/urfave/cli/v3"
+	"github.com/vercel-eddie/bridge/pkg/mutagen"
+	"github.com/vercel-eddie/bridge/pkg/proxy"
+	"github.com/vercel-eddie/bridge/pkg/sshserver"
 )
 
 func Server() *cli.Command {
@@ -40,11 +42,6 @@ func Server() *cli.Command {
 				Value:   3000,
 				Sources: cli.EnvVars("PROXY_PORT"),
 			},
-			&cli.StringFlag{
-				Name:    "host-key",
-				Usage:   "Path to host key file",
-				Sources: cli.EnvVars("SSH_HOST_KEY"),
-			},
 			&cli.DurationFlag{
 				Name:    "idle-timeout",
 				Usage:   "Idle timeout for connections",
@@ -63,6 +60,15 @@ func Server() *cli.Command {
 }
 
 func runServer(ctx context.Context, c *cli.Command) error {
+	// Install mutagen agent if not already installed
+	// This is needed for file sync between devcontainer and sandbox
+	if err := mutagen.InstallAgent(); err != nil {
+		slog.Warn("Failed to install mutagen agent", "error", err)
+		// Continue anyway - sync just won't work
+	} else {
+		slog.Info("Mutagen agent ready", "path", mutagen.AgentPath())
+	}
+
 	name := c.String("name")
 	host := c.String("host")
 	sshPort := c.Int("port")
@@ -71,10 +77,10 @@ func runServer(ctx context.Context, c *cli.Command) error {
 	cfg := sshserver.Config{
 		Host:            host,
 		Port:            sshPort,
-		HostKeyPath:     c.String("host-key"),
 		IdleTimeout:     c.Duration("idle-timeout"),
 		MaxTimeout:      c.Duration("max-timeout"),
 		AgentForwarding: true,
+		SessionHandler:  sshserver.ShellHandler(),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -86,17 +92,12 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
-	// Target is the local SSH server
-	sshTarget := fmt.Sprintf("localhost:%d", sshPort)
-
-	proxyServer := proxy.New(proxy.Config{
-		Host:   host,
-		Port:   proxyPort,
-		Target: sshTarget,
+	// Use WebSocket server for tunneling
+	wsServer := proxy.NewWSServer(proxy.WSServerConfig{
+		Addr:   fmt.Sprintf("%s:%d", host, proxyPort),
+		Dialer: &proxy.TCPDialer{Addr: fmt.Sprintf("localhost:%d", sshPort)},
 		Name:   name,
 	})
-
-	tunnel := proxy.NewTunnel(sshTarget)
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -106,14 +107,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		errCh <- srv.Start()
 	}()
 	go func() {
-		errCh <- proxyServer.Start()
-	}()
-
-	// Handle incoming proxy connections via the tunnel
-	go func() {
-		for conn := range proxyServer.Conns() {
-			go tunnel.Handle(ctx, conn)
-		}
+		errCh <- wsServer.Start()
 	}()
 
 	select {
@@ -123,7 +117,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		srv.Shutdown(shutdownCtx)
-		proxyServer.Shutdown(shutdownCtx)
+		wsServer.Shutdown(shutdownCtx)
 		return nil
 	}
 }
