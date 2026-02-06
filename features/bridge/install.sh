@@ -120,12 +120,9 @@ create_entrypoint() {
 # Function to read a value from an env file
 read_env_file() {
     local var_name="$1"
-    local env_file
+    local env_file="${CONTAINER_WORKSPACE_FOLDER}/${BRIDGE_ENV_FILE:-.env.development.local}"
 
-    # Find the env file
-    env_file=$(find /workspaces -maxdepth 2 -name "${BRIDGE_ENV_FILE:-.env.development.local}" -type f 2>/dev/null | head -1)
-
-    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+    if [ -f "$env_file" ]; then
         grep -m1 "^${var_name}=" "$env_file" 2>/dev/null | sed "s/^${var_name}=//" | sed 's/^"//;s/"$//'
     fi
 }

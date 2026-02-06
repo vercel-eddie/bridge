@@ -46,7 +46,8 @@
     "FUNCTION_URL": "${functionUrl}",
     "SANDBOX_NAME": "${sandboxName}",
     "SYNC_SOURCE": "${syncSource}",
-    "SYNC_TARGET": "${syncTarget}"
+    "SYNC_TARGET": "${syncTarget}",
+    "CONTAINER_WORKSPACE_FOLDER": "${containerWorkspaceFolder}"
   },
   "capAdd": [
     "NET_ADMIN"
