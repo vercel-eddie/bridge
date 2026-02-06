@@ -28,7 +28,7 @@ func Server() *cli.Command {
 			&cli.StringFlag{
 				Name:    "addr",
 				Usage:   "Address to bind the server to",
-				Value:   "0.0.0.0:3000",
+				Value:   ":3000",
 				Sources: cli.EnvVars("BRIDGE_ADDR"),
 			},
 			&cli.IntFlag{

@@ -49,10 +49,6 @@ type WSServerConfig struct {
 // NewWSServer creates a new WebSocket tunnel server.
 func NewWSServer(cfg WSServerConfig) *WSServer {
 	addr := cfg.Addr
-	if addr == "" {
-		addr = ":3000"
-	}
-
 	s := &WSServer{
 		addr:          addr,
 		dialer:        cfg.Dialer,

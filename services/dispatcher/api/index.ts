@@ -55,6 +55,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body,
       remoteIp,
       remotePort: req.socket?.remotePort,
+      localIp: req.socket?.localAddress,
+      localPort: req.socket?.localPort,
     },
     adaptResponse(res)
   );

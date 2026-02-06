@@ -67,6 +67,8 @@ export async function handler(
       body,
       remoteIp: req.socket.remoteAddress,
       remotePort: req.socket.remotePort,
+      localIp: req.socket.localAddress,
+      localPort: req.socket.localPort,
     },
     adaptResponse(res)
   );

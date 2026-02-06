@@ -7,6 +7,8 @@ export interface RequestInfo {
   body?: string;
   remoteIp?: string;
   remotePort?: number;
+  localIp?: string;
+  localPort?: number;
 }
 
 export interface ResponseWriter {
@@ -154,10 +156,8 @@ export async function handleRequest(
 
     const rawRequest = buildHttpRequest(req);
 
-    // Parse destination from the Host header
-    const host = req.headers?.["host"] ?? req.headers?.["Host"] ?? "127.0.0.1";
-    const [destIp, destPortStr] = host.includes(":") ? host.split(":") : [host, "80"];
-    const destPort = parseInt(destPortStr, 10) || 80;
+    const destIp = req.localIp ?? "127.0.0.1";
+    const destPort = req.localPort ?? 80;
 
     const response = await client.forwardRequest(
       rawRequest,
