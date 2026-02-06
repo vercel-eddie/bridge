@@ -1,6 +1,6 @@
 {
   "id": "vercel-cli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Vercel CLI",
   "description": "Installs the Vercel CLI with automatic token passthrough from VERCEL_TOKEN environment variable or env file.",
   "options": {
@@ -9,10 +9,10 @@
       "description": "Vercel CLI version to install (e.g., 'latest', '50.8.1')",
       "default": "latest"
     },
-    "envFile": {
+    "envFileVar": {
       "type": "string",
-      "description": "Path to env file containing VERCEL_TOKEN (e.g., '/workspaces/myproject/.env.local')",
-      "default": ".env.development.local"
+      "description": "Name of environment variable containing the path to env file with VERCEL_TOKEN",
+      "default": "VERCEL_ENV_FILE"
     }
   },
   "installsAfter": [

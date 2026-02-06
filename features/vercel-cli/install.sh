@@ -2,7 +2,7 @@
 set -e
 
 VERSION="${VERSION:-latest}"
-ENVFILE="${ENVFILE:-}"
+ENVFILEVAR="${ENVFILEVAR:-VERCEL_ENV_FILE}"
 
 # Remove yarn repository if it exists (often has expired GPG keys causing apt-get update to fail)
 rm -f /etc/apt/sources.list.d/yarn.list 2>/dev/null || true
@@ -50,10 +50,13 @@ cat > "$VERCEL_BIN" << EOF
 #!/bin/bash
 # Vercel CLI wrapper - auto-passes VERCEL_TOKEN if set or from env file
 
+# Get env file path from environment variable
+ENV_FILE_PATH="\${$ENVFILEVAR:-}"
+
 # If VERCEL_TOKEN not set, try to source from env file
-if [ -z "\$VERCEL_TOKEN" ] && [ -n "$ENVFILE" ] && [ -f "$ENVFILE" ]; then
+if [ -z "\$VERCEL_TOKEN" ] && [ -n "\$ENV_FILE_PATH" ] && [ -f "\$ENV_FILE_PATH" ]; then
   set -a
-  source "$ENVFILE"
+  source "\$ENV_FILE_PATH"
   set +a
 fi
 
@@ -79,7 +82,5 @@ echo "Usage:"
 echo "  vercel whoami"
 echo "  vc dev"
 echo ""
-if [ -n "$ENVFILE" ]; then
-    echo "Token will be read from: $ENVFILE"
-fi
+echo "Token will be read from env file path in \$$ENVFILEVAR"
 echo "Or set VERCEL_TOKEN environment variable to auto-authenticate."

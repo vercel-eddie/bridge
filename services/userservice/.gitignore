@@ -6,3 +6,4 @@
 
 # Vercel connect devcontainers
 .devcontainers/
+.devcontainer
