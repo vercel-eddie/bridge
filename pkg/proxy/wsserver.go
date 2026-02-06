@@ -238,7 +238,7 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 	}()
 
 	// POST to the dispatcher to trigger server connection
-	if err := s.notifyDispatcher(pairCtx, functionURL, s.addr, reg.GetOidcToken()); err != nil {
+	if err := s.notifyDispatcher(pairCtx, functionURL, s.addr, reg.GetProtectionBypassSecret()); err != nil {
 		slog.Error("failed to notify dispatcher", "error", err, "function_url", functionURL, "remote", remoteAddr)
 		s.sendError(wsConn, fmt.Sprintf("failed to connect to dispatcher: %v", err))
 		return
@@ -376,7 +376,7 @@ func relayMessages(conn1, conn2 *websocket.Conn) {
 	<-done
 }
 
-func (s *WSServer) notifyDispatcher(ctx context.Context, functionURL string, sandboxURL string, oidcToken string) error {
+func (s *WSServer) notifyDispatcher(ctx context.Context, functionURL string, sandboxURL string, protectionBypassSecret string) error {
 	// Build the connect URL
 	connectURL := functionURL + "/__tunnel/connect"
 
@@ -396,8 +396,8 @@ func (s *WSServer) notifyDispatcher(ctx context.Context, functionURL string, san
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if oidcToken != "" {
-		req.Header.Set("Authorization", "Bearer "+oidcToken)
+	if protectionBypassSecret != "" {
+		req.Header.Set("x-vercel-protection-bypass", protectionBypassSecret)
 	}
 
 	client := &http.Client{

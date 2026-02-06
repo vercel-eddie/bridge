@@ -150,11 +150,11 @@ export declare type Message_Registration = Message$1<"bridge.v1.Message.Registra
   functionUrl: string;
 
   /**
-   * The Vercel OIDC token for authentication.
+   * The Vercel deployment protection bypass secret (optional).
    *
-   * @generated from field: string oidc_token = 5 [json_name = "oidc_token"];
+   * @generated from field: string protection_bypass_secret = 5 [json_name = "protection_bypass_secret"];
    */
-  oidcToken: string;
+  protectionBypassSecret: string;
 };
 
 /**

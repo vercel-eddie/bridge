@@ -283,10 +283,10 @@ type Message_Registration struct {
 	// Only set by clients (is_server=false). Tunneld will open a
 	// Connect stream to this URL to establish the server-side connection.
 	FunctionUrl string `protobuf:"bytes,4,opt,name=function_url,proto3" json:"function_url,omitempty"`
-	// The Vercel OIDC token for authentication.
-	OidcToken     string `protobuf:"bytes,5,opt,name=oidc_token,proto3" json:"oidc_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The Vercel deployment protection bypass secret (optional).
+	ProtectionBypassSecret string `protobuf:"bytes,5,opt,name=protection_bypass_secret,proto3" json:"protection_bypass_secret,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Message_Registration) Reset() {
@@ -347,9 +347,9 @@ func (x *Message_Registration) GetFunctionUrl() string {
 	return ""
 }
 
-func (x *Message_Registration) GetOidcToken() string {
+func (x *Message_Registration) GetProtectionBypassSecret() string {
 	if x != nil {
-		return x.OidcToken
+		return x.ProtectionBypassSecret
 	}
 	return ""
 }
@@ -360,7 +360,7 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\n" +
 	"\x16bridge/v1/bridge.proto\x12\tbridge.v1\"4\n" +
 	"\x10ServerConnection\x12 \n" +
-	"\vsandbox_url\x18\x01 \x01(\tR\vsandbox_url\"\xf9\x04\n" +
+	"\vsandbox_url\x18\x01 \x01(\tR\vsandbox_url\"\x95\x05\n" +
 	"\aMessage\x12H\n" +
 	"\fregistration\x18\x01 \x01(\v2\x1f.bridge.v1.Message.RegistrationH\x00R\fregistration\x88\x01\x01\x122\n" +
 	"\x06source\x18\x02 \x01(\v2\x1a.bridge.v1.Message.AddressR\x06source\x12.\n" +
@@ -371,15 +371,13 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\x05error\x18\a \x01(\tR\x05error\x1a-\n" +
 	"\aAddress\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x1a\xcf\x01\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x1a\xeb\x01\n" +
 	"\fRegistration\x12$\n" +
 	"\rdeployment_id\x18\x01 \x01(\tR\rdeployment_id\x12\x1c\n" +
 	"\tis_server\x18\x02 \x01(\bR\tis_server\x127\n" +
 	"\bprotocol\x18\x03 \x01(\x0e2\x1b.bridge.v1.Message.ProtocolR\bprotocol\x12\"\n" +
-	"\ffunction_url\x18\x04 \x01(\tR\ffunction_url\x12\x1e\n" +
-	"\n" +
-	"oidc_token\x18\x05 \x01(\tR\n" +
-	"oidc_token\"H\n" +
+	"\ffunction_url\x18\x04 \x01(\tR\ffunction_url\x12:\n" +
+	"\x18protection_bypass_secret\x18\x05 \x01(\tR\x18protection_bypass_secret\"H\n" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fPROTOCOL_TCP\x10\x01\x12\x10\n" +

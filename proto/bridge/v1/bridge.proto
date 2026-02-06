@@ -38,8 +38,8 @@ message Message {
     // Connect stream to this URL to establish the server-side connection.
     string function_url = 4 [json_name = "function_url"];
 
-    // The Vercel OIDC token for authentication.
-    string oidc_token = 5 [json_name = "oidc_token"];
+    // The Vercel deployment protection bypass secret (optional).
+    string protection_bypass_secret = 5 [json_name = "protection_bypass_secret"];
   }
 
   // Registration is only sent on the first message to register with bridge.

@@ -47,6 +47,7 @@
     "NET_ADMIN"
   ],
   "installsAfter": [
-    "ghcr.io/devcontainers/features/common-utils"
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/vercel-eddie/bridge/vercel-cli"
   ]
 }

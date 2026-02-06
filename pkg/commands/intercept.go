@@ -144,11 +144,6 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		"proxy_port", i.proxyPort,
 	)
 
-	// Warn if OIDC token is not set (needed for deployment protection bypass)
-	if os.Getenv("VERCEL_OIDC_TOKEN") == "" {
-		slog.Warn("VERCEL_OIDC_TOKEN not set - requests to protected deployments will fail with 401")
-	}
-
 	// Initialize tunnel client
 	i.tunnel = tunnel.NewClient(sandboxURL, functionURL)
 
