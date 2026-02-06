@@ -51,14 +51,17 @@ cat > "$VERCEL_BIN" << 'WRAPPER'
 
 # If VERCEL_TOKEN not already set, read it from the env file
 if [ -z "$VERCEL_TOKEN" ]; then
-  # Search for env file in common locations
-  # Devcontainers typically mount to /workspaces/<repo-name>/
-  for candidate in "/workspaces"/*/"${ENVFILE}" "/workspaces/${ENVFILE}" "${ENVFILE}"; do
-    if [ -f "$candidate" ]; then
-      VERCEL_TOKEN=$(grep -m1 '^VERCEL_TOKEN=' "$candidate" | sed 's/^VERCEL_TOKEN=//' | sed 's/^"//;s/"$//')
-      break
-    fi
-  done
+  # Try baked workspace path first, then fall back to search
+  if [ -n "${WORKSPACE}" ] && [ -f "${WORKSPACE}/${ENVFILE}" ]; then
+    VERCEL_TOKEN=$(grep -m1 '^VERCEL_TOKEN=' "${WORKSPACE}/${ENVFILE}" | sed 's/^VERCEL_TOKEN=//' | sed 's/^"//;s/"$//')
+  else
+    for candidate in "/workspaces"/*/"${ENVFILE}" "${ENVFILE}"; do
+      if [ -f "$candidate" ]; then
+        VERCEL_TOKEN=$(grep -m1 '^VERCEL_TOKEN=' "$candidate" | sed 's/^VERCEL_TOKEN=//' | sed 's/^"//;s/"$//')
+        break
+      fi
+    done
+  fi
 fi
 
 # Use token if available
@@ -69,8 +72,9 @@ else
 fi
 WRAPPER
 
-# Inject the env file path into the wrapper
+# Inject the env file and workspace paths into the wrapper
 sed -i "s|\${ENVFILE}|${ENVFILE}|g" "$VERCEL_BIN"
+sed -i "s|\${WORKSPACE}|${WORKSPACEPATH}|g" "$VERCEL_BIN"
 chmod +x "$VERCEL_BIN"
 
 # Create wrapper script for vc (symlink to vercel wrapper)

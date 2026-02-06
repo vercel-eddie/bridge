@@ -25,8 +25,8 @@ export interface HandlerContext {
 // Track if background processing has been started
 let backgroundProcessingStarted = false;
 
-// Default validation regex allows localhost URLs only
-const DEFAULT_SANDBOX_URL_VALIDATION = "^https?://localhost(:\\d+)?(/.*)?$";
+// Default validation regex allows localhost and Vercel sandbox URLs
+const DEFAULT_SANDBOX_URL_VALIDATION = "^https?://(localhost(:\\d+)?|sb-[a-z0-9]+\\.vercel\\.run)(/.*)?$";
 
 /**
  * Validates the sandbox URL against the BRIDGE_SANDBOX_URL_VALIDATION regex.

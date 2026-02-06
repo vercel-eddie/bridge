@@ -13,6 +13,11 @@
       "type": "string",
       "description": "Path to env file containing VERCEL_TOKEN (relative to workspace)",
       "default": ".env.development.local"
+    },
+    "workspacePath": {
+      "type": "string",
+      "description": "Container workspace folder path",
+      "default": ""
     }
   },
   "installsAfter": [
