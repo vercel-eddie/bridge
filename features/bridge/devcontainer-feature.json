@@ -41,14 +41,7 @@
       "default": ".env.development.local"
     }
   },
-  "containerEnv": {
-    "SANDBOX_URL": "${sandboxUrl}",
-    "FUNCTION_URL": "${functionUrl}",
-    "SANDBOX_NAME": "${sandboxName}",
-    "SYNC_SOURCE": "${syncSource}",
-    "SYNC_TARGET": "${syncTarget}",
-    "CONTAINER_WORKSPACE_FOLDER": "${containerWorkspaceFolder}"
-  },
+  "containerEnv": {},
   "capAdd": [
     "NET_ADMIN"
   ],
