@@ -3,6 +3,8 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,15 +42,18 @@ type WSServer struct {
 	conns      *xsync.MapOf[*websocket.Conn, struct{}]
 
 	// pendingTunnels tracks client connections waiting for their server pair
-	// keyed by deployment_id
+	// keyed by connection_key
 	pendingTunnels *xsync.MapOf[string, *pendingTunnel]
+
+	pairingTimeout time.Duration
 }
 
 // WSServerConfig configures the WebSocket server.
 type WSServerConfig struct {
-	Addr   string // Listen address (e.g., ":3000" or "0.0.0.0:3000")
-	Dialer Dialer // Dialer for establishing connections to the target
-	Name   string // Name of the sandbox
+	Addr           string        // Listen address (e.g., ":3000" or "0.0.0.0:3000")
+	Dialer         Dialer        // Dialer for establishing connections to the target
+	Name           string        // Name of the sandbox
+	PairingTimeout time.Duration // How long to wait for server to pair with client (default 60s)
 }
 
 // NewWSServer creates a new WebSocket tunnel server.
@@ -58,12 +63,18 @@ func NewWSServer(cfg WSServerConfig) *WSServer {
 		addr = ":3000"
 	}
 
+	pairingTimeout := cfg.PairingTimeout
+	if pairingTimeout == 0 {
+		pairingTimeout = 60 * time.Second
+	}
+
 	s := &WSServer{
 		addr:           addr,
 		dialer:         cfg.Dialer,
 		name:           cfg.Name,
 		conns:          xsync.NewMapOf[*websocket.Conn, struct{}](),
 		pendingTunnels: xsync.NewMapOf[string, *pendingTunnel](),
+		pairingTimeout: pairingTimeout,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  32 * 1024,
 			WriteBufferSize: 32 * 1024,
@@ -181,9 +192,8 @@ func (s *WSServer) handleTunnel(w http.ResponseWriter, r *http.Request) {
 
 	slog.Debug("received tunnel registration",
 		"remote", remoteAddr,
-		"deployment_id", reg.GetDeploymentId(),
 		"is_server", reg.GetIsServer(),
-		"function_url", reg.GetFunctionUrl(),
+		"connection_key", reg.GetConnectionKey(),
 		"has_bypass_secret", reg.GetProtectionBypassSecret() != "",
 	)
 
@@ -199,14 +209,7 @@ func (s *WSServer) handleTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websocket.Conn, reg *bridgev1.Message_Registration, remoteAddr string, sandboxURL string) {
-	deploymentID := reg.GetDeploymentId()
 	functionURL := reg.GetFunctionUrl()
-
-	if deploymentID == "" {
-		slog.Error("client registration missing deployment_id", "remote", remoteAddr)
-		s.sendError(wsConn, "registration missing deployment_id")
-		return
-	}
 
 	if functionURL == "" {
 		slog.Error("client registration missing function_url", "remote", remoteAddr)
@@ -214,8 +217,17 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 		return
 	}
 
+	// Generate a random connection key for pairing
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		slog.Error("failed to generate connection key", "error", err, "remote", remoteAddr)
+		s.sendError(wsConn, "internal error generating connection key")
+		return
+	}
+	connectionKey := hex.EncodeToString(keyBytes)
+
 	// Create a context with timeout for the entire pairing process
-	pairCtx, cancel := context.WithTimeout(ctx, registrationTimeout)
+	pairCtx, cancel := context.WithTimeout(ctx, s.pairingTimeout)
 	defer cancel()
 
 	// Create pending tunnel entry
@@ -226,15 +238,11 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 		cancel:     cancel,
 	}
 
-	// Cancel any existing pending connection and store the new one
-	if existing, ok := s.pendingTunnels.Load(deploymentID); ok {
-		existing.cancel()
-	}
-	s.pendingTunnels.Store(deploymentID, pending)
+	s.pendingTunnels.Store(connectionKey, pending)
 
 	defer func() {
 		// Only delete if this is still our pending entry
-		s.pendingTunnels.Compute(deploymentID, func(oldValue *pendingTunnel, loaded bool) (*pendingTunnel, bool) {
+		s.pendingTunnels.Compute(connectionKey, func(oldValue *pendingTunnel, loaded bool) (*pendingTunnel, bool) {
 			if loaded && oldValue == pending {
 				return nil, true // delete
 			}
@@ -242,15 +250,15 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 		})
 	}()
 
-	// POST to the dispatcher to trigger server connection
-	if err := s.notifyDispatcher(pairCtx, functionURL, sandboxURL, reg.GetProtectionBypassSecret()); err != nil {
+	// POST to the dispatcher to trigger server connection, including connection_key
+	if err := s.notifyDispatcher(pairCtx, functionURL, sandboxURL, connectionKey, reg.GetProtectionBypassSecret()); err != nil {
 		slog.Error("failed to notify dispatcher", "error", err, "function_url", functionURL, "remote", remoteAddr)
 		s.sendError(wsConn, fmt.Sprintf("failed to connect to dispatcher: %v", err))
 		return
 	}
 
 	slog.Debug("notified dispatcher, waiting for server connection",
-		"deployment_id", deploymentID,
+		"connection_key", connectionKey,
 		"function_url", functionURL,
 		"remote", remoteAddr,
 	)
@@ -259,7 +267,7 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 	select {
 	case serverConn := <-pending.ready:
 		slog.Info("tunnel paired",
-			"deployment_id", deploymentID,
+			"connection_key", connectionKey,
 			"client", remoteAddr,
 		)
 
@@ -269,39 +277,39 @@ func (s *WSServer) handleClientRegistration(ctx context.Context, wsConn *websock
 		// Signal that we're done so the server handler can exit
 		close(pending.done)
 
-		slog.Debug("tunnel closed", "deployment_id", deploymentID)
+		slog.Debug("tunnel closed", "connection_key", connectionKey)
 
 	case <-pairCtx.Done():
 		slog.Error("timeout waiting for server connection",
-			"deployment_id", deploymentID,
+			"connection_key", connectionKey,
 			"remote", remoteAddr,
 		)
-		s.sendError(wsConn, fmt.Sprintf("timeout waiting for server connection for deployment_id %s", deploymentID))
+		s.sendError(wsConn, fmt.Sprintf("timeout waiting for server connection for connection_key %s", connectionKey))
 		close(pending.done)
 	}
 }
 
 func (s *WSServer) handleServerRegistration(wsConn *websocket.Conn, reg *bridgev1.Message_Registration, remoteAddr string) {
-	deploymentID := reg.GetDeploymentId()
+	connectionKey := reg.GetConnectionKey()
 
-	if deploymentID == "" {
-		slog.Error("server registration missing deployment_id", "remote", remoteAddr)
-		s.sendError(wsConn, "registration missing deployment_id")
+	if connectionKey == "" {
+		slog.Error("server registration missing connection_key", "remote", remoteAddr)
+		s.sendError(wsConn, "registration missing connection_key")
 		return
 	}
 
-	pending, ok := s.pendingTunnels.LoadAndDelete(deploymentID)
+	pending, ok := s.pendingTunnels.LoadAndDelete(connectionKey)
 	if !ok {
 		slog.Error("no pending client for server registration",
-			"deployment_id", deploymentID,
+			"connection_key", connectionKey,
 			"remote", remoteAddr,
 		)
-		s.sendError(wsConn, fmt.Sprintf("no pending client for deployment_id %s", deploymentID))
+		s.sendError(wsConn, fmt.Sprintf("no pending client for connection_key %s", connectionKey))
 		return
 	}
 
 	slog.Debug("server registered, pairing with client",
-		"deployment_id", deploymentID,
+		"connection_key", connectionKey,
 		"remote", remoteAddr,
 	)
 
@@ -311,13 +319,13 @@ func (s *WSServer) handleServerRegistration(wsConn *websocket.Conn, reg *bridgev
 		// Successfully paired - wait for the tunnel to complete
 		// The client handler will close the done channel when bidi copy finishes
 		<-pending.done
-		slog.Debug("server handler exiting after tunnel closed", "deployment_id", deploymentID)
+		slog.Debug("server handler exiting after tunnel closed", "connection_key", connectionKey)
 	default:
 		slog.Error("failed to pair server with client",
-			"deployment_id", deploymentID,
+			"connection_key", connectionKey,
 			"remote", remoteAddr,
 		)
-		s.sendError(wsConn, fmt.Sprintf("failed to pair server with client for deployment_id %s", deploymentID))
+		s.sendError(wsConn, fmt.Sprintf("failed to pair server with client for connection_key %s", connectionKey))
 	}
 }
 
@@ -381,18 +389,20 @@ func relayMessages(conn1, conn2 *websocket.Conn) {
 	<-done
 }
 
-func (s *WSServer) notifyDispatcher(ctx context.Context, functionURL string, sandboxURL string, protectionBypassSecret string) error {
+func (s *WSServer) notifyDispatcher(ctx context.Context, functionURL string, sandboxURL string, connectionKey string, protectionBypassSecret string) error {
 	// Build the connect URL
 	connectURL := functionURL + "/__tunnel/connect"
 
 	slog.Debug("notifying dispatcher",
 		"connect_url", connectURL,
+		"connection_key", connectionKey,
 		"has_bypass_secret", protectionBypassSecret != "",
 	)
 
 	// Create the ServerConnection payload
 	payload := &bridgev1.ServerConnection{
-		SandboxUrl: sandboxURL,
+		SandboxUrl:    sandboxURL,
+		ConnectionKey: connectionKey,
 	}
 
 	jsonData, err := protojson.Marshal(payload)

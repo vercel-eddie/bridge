@@ -21,10 +21,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 export interface GetTunnelClientOptions {
   /** The sandbox URL to connect to (from ServerConnection) */
   sandboxUrl: string;
-  /** Override deployment ID (uses VERCEL_DEPLOYMENT_ID or DEPLOYMENT_ID env var if not provided) */
-  deploymentId?: string;
-  /** Override OIDC token (uses VERCEL_OIDC_TOKEN or OIDC_TOKEN env var if not provided) */
-  oidcToken?: string;
+  /** The connection key for tunnel pairing (from ServerConnection) */
+  connectionKey: string;
   /** Override function URL (uses VERCEL_URL or FUNCTION_URL env var if not provided) */
   functionUrl?: string;
 }
@@ -58,14 +56,7 @@ export async function getTunnelClient(options: GetTunnelClientOptions): Promise<
 
   const config: TunnelConfig = {
     sandboxUrl,
-    deploymentId: options.deploymentId
-      || process.env.VERCEL_DEPLOYMENT_ID
-      || process.env.DEPLOYMENT_ID
-      || "local",
-    oidcToken: options.oidcToken
-      || process.env.VERCEL_OIDC_TOKEN
-      || process.env.OIDC_TOKEN
-      || "",
+    connectionKey: options.connectionKey,
     functionUrl: options.functionUrl
       || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
       || process.env.FUNCTION_URL

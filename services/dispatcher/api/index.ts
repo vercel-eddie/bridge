@@ -1,6 +1,5 @@
 import type {VercelRequest, VercelResponse} from "@vercel/node";
 import {waitUntil, getEnv} from "@vercel/functions";
-import {getVercelOidcToken} from "@vercel/oidc";
 import {handleRequest, type ResponseWriter} from "../src/common-handler.js";
 
 /**
@@ -28,14 +27,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Use Vercel SDK for system environment variables
   const env = getEnv();
 
-  // Use Vercel OIDC SDK to get token
-  let oidcToken = "";
-  try {
-    oidcToken = await getVercelOidcToken();
-  } catch {
-    console.log("OIDC token not available, continuing without it");
-  }
-
   // Get body as string for POST requests
   let body: string | undefined;
   if (req.method === "POST" && req.body) {
@@ -47,8 +38,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     adaptResponse(res),
     {
       baseTunnelClientOptions: {
-        deploymentId: env.VERCEL_DEPLOYMENT_ID,
-        oidcToken,
         functionUrl: env.VERCEL_URL ? `https://${env.VERCEL_URL}` : undefined,
       },
       onBackgroundStart: (promise) => waitUntil(promise),

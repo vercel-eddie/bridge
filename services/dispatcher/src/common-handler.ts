@@ -16,8 +16,8 @@ export interface ResponseWriter {
 }
 
 export interface HandlerContext {
-  /** Base options for tunnel client (deploymentId, oidcToken, functionUrl) */
-  baseTunnelClientOptions?: Omit<GetTunnelClientOptions, "sandboxUrl">;
+  /** Base options for tunnel client (functionUrl) */
+  baseTunnelClientOptions?: Omit<GetTunnelClientOptions, "sandboxUrl" | "connectionKey">;
   /** Called when background processing should start (e.g., waitUntil) */
   onBackgroundStart?: (promise: Promise<void>) => void;
 }
@@ -121,7 +121,17 @@ async function handleTunnelConnect(
     return;
   }
 
-  const { sandboxUrl } = serverConnection;
+  const { sandboxUrl, connectionKey } = serverConnection;
+
+  if (!connectionKey) {
+    console.error("ServerConnection missing connection_key");
+    res.status(400).json({
+      status: "error",
+      error: "Missing connection_key",
+      details: "ServerConnection must include a connection_key for tunnel pairing",
+    });
+    return;
+  }
 
   // Validate sandbox URL against regex
   if (!validateSandboxUrl(sandboxUrl)) {
@@ -139,6 +149,7 @@ async function handleTunnelConnect(
   try {
     const clientOptions: GetTunnelClientOptions = {
       sandboxUrl,
+      connectionKey,
       ...ctx.baseTunnelClientOptions,
     };
 

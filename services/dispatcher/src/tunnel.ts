@@ -12,8 +12,7 @@ import {logger} from "./logger.js";
 
 export interface TunnelConfig {
   sandboxUrl: string;
-  deploymentId: string;
-  oidcToken: string;
+  connectionKey: string;
   functionUrl: string;
 }
 
@@ -70,11 +69,9 @@ export class TunnelClient {
 
         // Send registration message
         const registration = create(Message_RegistrationSchema, {
-          deploymentId: this.config.deploymentId,
           isServer: true,
           protocol: Message_Protocol.TCP,
-          functionUrl: this.config.functionUrl,
-          oidcToken: this.config.oidcToken,
+          connectionKey: this.config.connectionKey,
         });
 
         const registrationMsg = create(MessageSchema, {

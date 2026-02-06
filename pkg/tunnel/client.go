@@ -27,7 +27,6 @@ const (
 type Client struct {
 	sandboxURL       string
 	functionURL      string
-	deploymentID     string
 	protectionBypass string
 
 	conn              atomic.Pointer[websocket.Conn]
@@ -40,14 +39,11 @@ type Client struct {
 
 // NewClient creates a new tunnel client.
 func NewClient(sandboxURL, functionURL string) *Client {
-	// Get configuration from environment if not provided
-	deploymentID := getEnvOrDefault("VERCEL_DEPLOYMENT_ID", "local")
 	protectionBypass := getEnvOrDefault("VERCEL_AUTOMATION_BYPASS_SECRET", "")
 
 	return &Client{
 		sandboxURL:       sandboxURL,
 		functionURL:      functionURL,
-		deploymentID:     deploymentID,
 		protectionBypass: protectionBypass,
 	}
 }
@@ -115,7 +111,6 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	slog.Info("Connecting to bridge server",
 		"sandbox_url", c.sandboxURL,
 		"function_url", c.functionURL,
-		"deployment_id", c.deploymentID,
 		"has_bypass_secret", c.protectionBypass != "",
 	)
 
@@ -152,7 +147,6 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	// Send registration message
 	reg := &bridgev1.Message{
 		Registration: &bridgev1.Message_Registration{
-			DeploymentId:           c.deploymentID,
 			IsServer:               false, // We are the client
 			FunctionUrl:            c.functionURL,
 			ProtectionBypassSecret: c.protectionBypass,
