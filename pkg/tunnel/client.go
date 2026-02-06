@@ -28,6 +28,7 @@ type Client struct {
 	sandboxURL       string
 	functionURL      string
 	protectionBypass string
+	appAddr          string // Local app address to forward inbound requests to
 
 	conn              atomic.Pointer[websocket.Conn]
 	isConnected       atomic.Bool
@@ -38,13 +39,14 @@ type Client struct {
 }
 
 // NewClient creates a new tunnel client.
-func NewClient(sandboxURL, functionURL string) *Client {
+func NewClient(sandboxURL, functionURL, appAddr string) *Client {
 	protectionBypass := getEnvOrDefault("VERCEL_AUTOMATION_BYPASS_SECRET", "")
 
 	return &Client{
 		sandboxURL:       sandboxURL,
 		functionURL:      functionURL,
 		protectionBypass: protectionBypass,
+		appAddr:          appAddr,
 	}
 }
 
@@ -260,14 +262,19 @@ func (c *Client) handleMessage(msg *bridgev1.Message) {
 
 func (c *Client) handleInboundConnection(conn *Conn, initialData []byte) {
 	connID := conn.id
-	destAddr := conn.dest
+
+	// Forward to the local app if configured, otherwise use the dest from the message
+	targetAddr := conn.dest
+	if c.appAddr != "" {
+		targetAddr = c.appAddr
+	}
 
 	// Connect to the destination
-	targetConn, err := net.DialTimeout("tcp", destAddr, 10*time.Second)
+	targetConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
 	if err != nil {
 		slog.Error("Failed to connect to destination",
 			"connection_id", connID,
-			"dest", destAddr,
+			"dest", targetAddr,
 			"error", err,
 		)
 		c.connections.Delete(connID)

@@ -76,6 +76,12 @@ func Intercept() *cli.Command {
 				Name:  "no-ssh-proxy",
 				Usage: "Disable SSH proxy",
 			},
+			&cli.IntFlag{
+				Name:    "app-port",
+				Usage:   "Local app port to forward inbound requests to",
+				Value:   3000,
+				Sources: cli.EnvVars("APP_PORT"),
+			},
 		},
 		Action: runIntercept,
 	}
@@ -87,6 +93,7 @@ type interceptor struct {
 	name          string
 	proxyPort     int
 	sshProxyPort  int
+	appPort       int
 	syncSource    string
 	syncTarget    string
 	noSync        bool
@@ -108,6 +115,7 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 	syncTarget := c.String("sync-target")
 	noSync := c.Bool("no-sync")
 	noSSHProxy := c.Bool("no-ssh-proxy")
+	appPort := c.Int("app-port")
 
 	// Derive name from sandbox URL if not provided
 	if name == "" {
@@ -125,6 +133,7 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		name:         name,
 		proxyPort:    proxyPort,
 		sshProxyPort: sshProxyPort,
+		appPort:      appPort,
 		syncSource:   syncSource,
 		syncTarget:   syncTarget,
 		noSync:       noSync,
@@ -145,7 +154,7 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 	)
 
 	// Initialize tunnel client
-	i.tunnel = tunnel.NewClient(sandboxURL, functionURL)
+	i.tunnel = tunnel.NewClient(sandboxURL, functionURL, fmt.Sprintf("127.0.0.1:%d", i.appPort))
 
 	// Set up iptables for traffic interception
 	if err := i.setupIptables(); err != nil {

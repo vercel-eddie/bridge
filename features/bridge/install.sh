@@ -85,6 +85,7 @@ export FUNCTION_URL="${FUNCTIONURL:-}"
 export SANDBOX_NAME="${SANDBOXNAME:-}"
 export SYNC_SOURCE="${SYNCSOURCE:-.}"
 export SYNC_TARGET="${SYNCTARGET:-}"
+export APP_PORT="${APPPORT:-3000}"
 export BRIDGE_ENV_FILE="${env_file}"
 EOF
 }

@@ -156,13 +156,10 @@ export async function handleRequest(
 
     const rawRequest = buildHttpRequest(req);
 
-    const destIp = req.localIp ?? "127.0.0.1";
-    const destPort = req.localPort ?? 80;
-
     const response = await client.forwardRequest(
       rawRequest,
       { ip: req.remoteIp ?? "127.0.0.1", port: req.remotePort ?? 0 },
-      { ip: destIp, port: destPort }
+      { ip: req.localIp ?? "127.0.0.1", port: req.localPort ?? 0 }
     );
 
     const parsed = parseHttpResponse(response.data);

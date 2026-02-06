@@ -30,6 +30,11 @@
       "description": "Remote directory on sandbox to sync to",
       "default": ""
     },
+    "appPort": {
+      "type": "string",
+      "description": "Local app port to forward inbound requests to",
+      "default": "3000"
+    },
     "bridgeVersion": {
       "type": "string",
       "description": "Version of bridge CLI to install (e.g., 'v1.0.0' or 'edge')",
