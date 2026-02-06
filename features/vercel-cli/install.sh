@@ -2,7 +2,7 @@
 set -e
 
 VERSION="${VERSION:-latest}"
-ENVFILEVAR="${ENVFILEVAR:-VERCEL_ENV_FILE}"
+ENVFILE="${ENVFILE:-.env.development.local}"
 
 # Remove yarn repository if it exists (often has expired GPG keys causing apt-get update to fail)
 rm -f /etc/apt/sources.list.d/yarn.list 2>/dev/null || true
@@ -13,7 +13,6 @@ echo "Installing Vercel CLI (version: $VERSION)..."
 if ! command -v node &> /dev/null; then
     echo "Node.js is required but not installed. Installing Node.js..."
     if command -v apt-get &> /dev/null; then
-        # Remove yarn repository if it exists (often has expired GPG keys)
         rm -f /etc/apt/sources.list.d/yarn.list 2>/dev/null || true
         apt-get update
         apt-get install -y curl
@@ -45,28 +44,32 @@ echo "Vercel CLI installed at: $VERCEL_BIN"
 # Move the original binary to a different name
 mv "$VERCEL_BIN" "${VERCEL_BIN}-bin"
 
-# Create wrapper script for vercel
-cat > "$VERCEL_BIN" << EOF
+# Create wrapper script for vercel that reads VERCEL_TOKEN from env file every time
+cat > "$VERCEL_BIN" << 'WRAPPER'
 #!/bin/bash
-# Vercel CLI wrapper - auto-passes VERCEL_TOKEN if set or from env file
+# Vercel CLI wrapper - reads VERCEL_TOKEN from env file on every invocation
 
-# Get env file path from environment variable
-ENV_FILE_PATH="\${$ENVFILEVAR:-}"
-
-# If VERCEL_TOKEN not set, try to source from env file
-if [ -z "\$VERCEL_TOKEN" ] && [ -n "\$ENV_FILE_PATH" ] && [ -f "\$ENV_FILE_PATH" ]; then
-  set -a
-  source "\$ENV_FILE_PATH"
-  set +a
+# If VERCEL_TOKEN not already set, read it from the env file
+if [ -z "$VERCEL_TOKEN" ]; then
+  # Try workspace-relative path first, then absolute
+  for candidate in "/workspaces/${ENVFILE}" "${ENVFILE}"; do
+    if [ -f "$candidate" ]; then
+      VERCEL_TOKEN=$(grep -m1 '^VERCEL_TOKEN=' "$candidate" | sed 's/^VERCEL_TOKEN=//' | sed 's/^"//;s/"$//')
+      break
+    fi
+  done
 fi
 
 # Use token if available
-if [ -n "\$VERCEL_TOKEN" ]; then
-  exec "\$(dirname "\$0")/vercel-bin" --token "\$VERCEL_TOKEN" "\$@"
+if [ -n "$VERCEL_TOKEN" ]; then
+  exec "$(dirname "$0")/vercel-bin" --token "$VERCEL_TOKEN" "$@"
 else
-  exec "\$(dirname "\$0")/vercel-bin" "\$@"
+  exec "$(dirname "$0")/vercel-bin" "$@"
 fi
-EOF
+WRAPPER
+
+# Inject the env file path into the wrapper
+sed -i "s|\${ENVFILE}|${ENVFILE}|g" "$VERCEL_BIN"
 chmod +x "$VERCEL_BIN"
 
 # Create wrapper script for vc (symlink to vercel wrapper)
@@ -82,5 +85,4 @@ echo "Usage:"
 echo "  vercel whoami"
 echo "  vc dev"
 echo ""
-echo "Token will be read from env file path in \$$ENVFILEVAR"
-echo "Or set VERCEL_TOKEN environment variable to auto-authenticate."
+echo "Token will be read from ${ENVFILE} on every invocation."

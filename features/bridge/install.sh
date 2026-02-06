@@ -77,6 +77,8 @@ install_bridge() {
 
 # Write environment configuration
 write_env_config() {
+    local env_file="${ENVFILE:-.env.development.local}"
+
     # Write to /etc/environment for system-wide availability (read by PAM)
     # Feature options are available as uppercase versions without special chars
     {
@@ -85,6 +87,7 @@ write_env_config() {
         echo "SANDBOX_NAME=${SANDBOXNAME:-}"
         echo "SYNC_SOURCE=${SYNCSOURCE:-.}"
         echo "SYNC_TARGET=${SYNCTARGET:-}"
+        echo "BRIDGE_ENV_FILE=${env_file}"
     } >> /etc/environment
 
     # Also write to /etc/profile.d for shell login sessions
@@ -94,7 +97,17 @@ export FUNCTION_URL="${FUNCTIONURL:-}"
 export SANDBOX_NAME="${SANDBOXNAME:-}"
 export SYNC_SOURCE="${SYNCSOURCE:-.}"
 export SYNC_TARGET="${SYNCTARGET:-}"
+export BRIDGE_ENV_FILE="${env_file}"
 EOF
+}
+
+# Helper to read a value from an env file
+# Usage: read_env_var ENV_FILE VAR_NAME
+read_env_var() {
+    local file="$1" var="$2"
+    if [ -f "$file" ]; then
+        grep -m1 "^${var}=" "$file" | sed "s/^${var}=//" | sed 's/^"//;s/"$//'
+    fi
 }
 
 # Create entrypoint script
@@ -104,9 +117,21 @@ create_entrypoint() {
 # Source profile in case env vars aren't inherited
 [ -f /etc/profile.d/bridge.sh ] && source /etc/profile.d/bridge.sh
 
+# Read VERCEL_AUTOMATION_BYPASS_SECRET from env file if not already set
+if [ -z "$VERCEL_AUTOMATION_BYPASS_SECRET" ] && [ -n "$BRIDGE_ENV_FILE" ]; then
+    # Try workspace-relative path first, then absolute
+    for candidate in "/workspaces/${BRIDGE_ENV_FILE}" "${BRIDGE_ENV_FILE}"; do
+        if [ -f "$candidate" ]; then
+            VERCEL_AUTOMATION_BYPASS_SECRET=$(grep -m1 '^VERCEL_AUTOMATION_BYPASS_SECRET=' "$candidate" | sed 's/^VERCEL_AUTOMATION_BYPASS_SECRET=//' | sed 's/^"//;s/"$//')
+            export VERCEL_AUTOMATION_BYPASS_SECRET
+            break
+        fi
+    done
+fi
+
 # Run bridge intercept as root (required for iptables), passing env vars explicitly
 if [ -n "$SANDBOX_URL" ]; then
-    sudo -E /usr/local/bin/bridge intercept &
+    sudo -E VERCEL_AUTOMATION_BYPASS_SECRET="$VERCEL_AUTOMATION_BYPASS_SECRET" /usr/local/bin/bridge intercept &
 fi
 
 exec "$@"
