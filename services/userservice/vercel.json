@@ -3,7 +3,7 @@
   "builds": [
     {
       "src": "userservice/wsgi.py",
-      "use": "@vercel/python",
+      "use": "@vercel/python@4.5.1",
       "config": {
         "maxLambdaSize": "15mb"
       }
