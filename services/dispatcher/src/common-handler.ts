@@ -150,44 +150,57 @@ export async function handleRequest(
     return true;
   }
 
-  // Proxy all other requests through the tunnel
-  try {
-    const client = await getTunnelClient();
+  // Proxy all other requests through the tunnel, retry once on stale connection
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const client = await getTunnelClient();
 
-    const rawRequest = buildHttpRequest(req);
+      const rawRequest = buildHttpRequest(req);
 
-    const response = await client.forwardRequest(
-      rawRequest,
-      { ip: req.remoteIp ?? "127.0.0.1", port: req.remotePort ?? 0 },
-      { ip: req.localIp ?? "127.0.0.1", port: req.localPort ?? 0 }
-    );
+      const response = await client.forwardRequest(
+        rawRequest,
+        { ip: req.remoteIp ?? "127.0.0.1", port: req.remotePort ?? 0 },
+        { ip: req.localIp ?? "127.0.0.1", port: req.localPort ?? 0 }
+      );
 
-    const parsed = parseHttpResponse(response.data);
+      const parsed = parseHttpResponse(response.data);
 
-    // Set response headers
-    for (const [key, value] of Object.entries(parsed.headers)) {
-      if (key === "transfer-encoding") continue; // we dechunk
-      res.setHeader(key, value);
+      // Set response headers
+      for (const [key, value] of Object.entries(parsed.headers)) {
+        if (key === "transfer-encoding") continue; // we dechunk
+        res.setHeader(key, value);
+      }
+
+      // Dechunk body if needed
+      let bodyBytes = parsed.body;
+      if (parsed.headers["transfer-encoding"]?.includes("chunked")) {
+        bodyBytes = dechunkBuffer(bodyBytes);
+      }
+
+      res.status(parsed.statusCode).send(new TextDecoder().decode(bodyBytes));
+      break;
+    } catch (error) {
+      console.error(`Proxy error (attempt ${attempt}/${maxAttempts}):`, error);
+      resetTunnelClient();
+
+      // Retry on stale WebSocket connection errors
+      const isStaleConnection = error instanceof Error &&
+        error.message.includes("WebSocket connection closed");
+      if (isStaleConnection && attempt < maxAttempts) {
+        console.log("Retrying with fresh connection...");
+        continue;
+      }
+
+      const isConnectionError = error instanceof Error &&
+        (error.message.includes("BRIDGE_SERVER_ADDR") || error.message.includes("timed out") || error.message.includes("connect"));
+
+      res.status(isConnectionError ? 503 : 502).json({
+        error: isConnectionError ? "Service Unavailable" : "Bad Gateway",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      break;
     }
-
-    // Dechunk body if needed
-    let bodyBytes = parsed.body;
-    if (parsed.headers["transfer-encoding"]?.includes("chunked")) {
-      bodyBytes = dechunkBuffer(bodyBytes);
-    }
-
-    res.status(parsed.statusCode).send(new TextDecoder().decode(bodyBytes));
-  } catch (error) {
-    console.error("Proxy error:", error);
-    resetTunnelClient();
-
-    const isConnectionError = error instanceof Error &&
-      (error.message.includes("BRIDGE_SERVER_ADDR") || error.message.includes("timed out") || error.message.includes("connect"));
-
-    res.status(isConnectionError ? 503 : 502).json({
-      error: isConnectionError ? "Service Unavailable" : "Bad Gateway",
-      message: error instanceof Error ? error.message : String(error),
-    });
   }
 
   return true;

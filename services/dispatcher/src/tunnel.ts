@@ -158,7 +158,7 @@ export class TunnelClient {
    */
   private cleanupAllConnections(error: Error): void {
     // Reject all pending requests
-    for (const [connectionId, pending] of this.pendingRequests) {
+    for (const [_connectionId, pending] of this.pendingRequests) {
       pending.reject(error);
     }
     this.pendingRequests.clear();
@@ -389,9 +389,9 @@ export class TunnelClient {
   }
 
   /**
-   * Returns true if the tunnel connection is active.
+   * Returns true if the tunnel connection is active and the WebSocket is open.
    */
   get connected(): boolean {
-    return this.isConnected;
+    return this.isConnected && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 }
