@@ -131,8 +131,7 @@ export class TunnelClient {
 
   private sendMessage(msg: Message): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      logger.error("Cannot send message: WebSocket not connected");
-      return;
+      throw new Error("Cannot send message: WebSocket not connected");
     }
 
     const binary = toBinary(MessageSchema, msg);

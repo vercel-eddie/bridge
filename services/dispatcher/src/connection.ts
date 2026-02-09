@@ -71,6 +71,9 @@ export async function getTunnelClient(): Promise<TunnelClient> {
  * to allow reconnection on the next request.
  */
 export function resetTunnelClient(): void {
+  if (tunnelClient) {
+    tunnelClient.disconnect();
+  }
   tunnelClient = null;
   connectionPromise = null;
 }

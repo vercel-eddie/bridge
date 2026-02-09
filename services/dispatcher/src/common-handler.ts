@@ -184,16 +184,14 @@ export async function handleRequest(
       console.error(`Proxy error (attempt ${attempt}/${maxAttempts}):`, error);
       resetTunnelClient();
 
-      // Retry on stale WebSocket connection errors
-      const isStaleConnection = error instanceof Error &&
-        error.message.includes("WebSocket connection closed");
-      if (isStaleConnection && attempt < maxAttempts) {
+      // Retry on any tunnel/connection error
+      if (attempt < maxAttempts) {
         console.log("Retrying with fresh connection...");
         continue;
       }
 
       const isConnectionError = error instanceof Error &&
-        (error.message.includes("BRIDGE_SERVER_ADDR") || error.message.includes("timed out") || error.message.includes("connect"));
+        (error.message.includes("BRIDGE_SERVER_ADDR") || error.message.includes("timed out") || error.message.includes("connect") || error.message.includes("WebSocket"));
 
       res.status(isConnectionError ? 503 : 502).json({
         error: isConnectionError ? "Service Unavailable" : "Bad Gateway",
