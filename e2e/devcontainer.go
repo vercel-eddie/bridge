@@ -30,6 +30,8 @@ type DevcontainerConfig struct {
 	Network string
 	// WaitFor is an optional wait strategy. If nil, the container starts without waiting.
 	WaitFor wait.Strategy
+	// NetworkAliases are DNS aliases for this container on the network
+	NetworkAliases []string
 }
 
 // NewDevcontainer creates and starts a new devcontainer running the bridge CLI.
@@ -60,6 +62,11 @@ func NewDevcontainer(ctx context.Context, cfg DevcontainerConfig) (*Devcontainer
 
 	if cfg.Network != "" {
 		req.Networks = []string{cfg.Network}
+		if len(cfg.NetworkAliases) > 0 {
+			req.NetworkAliases = map[string][]string{
+				cfg.Network: cfg.NetworkAliases,
+			}
+		}
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

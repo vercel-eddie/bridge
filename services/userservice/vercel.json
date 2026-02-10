@@ -2,17 +2,13 @@
   "version": 2,
   "builds": [
     {
-      "src": "userservice/wsgi.py",
-      "use": "@vercel/python@4.5.1",
-      "config": {
-        "maxLambdaSize": "15mb"
-      }
+      "src": "api/**/*.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "userservice/wsgi.py"
-    }
+    { "src": "/api/health", "dest": "/api/health.ts" },
+    { "src": "/api/users/([^/]+)", "dest": "/api/users/[id].ts?id=$1" },
+    { "src": "/api/users", "dest": "/api/users/index.ts" }
   ]
 }

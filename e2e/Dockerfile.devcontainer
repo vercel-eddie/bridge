@@ -3,7 +3,7 @@ FROM alpine:3.20
 # Install runtime dependencies
 # iptables is needed for traffic interception
 # openssh-client is needed for SSH connections
-RUN apk add --no-cache ca-certificates iptables openssh-client
+RUN apk add --no-cache ca-certificates iptables openssh-client busybox-extras
 
 # Copy the pre-built binary
 COPY bridge /usr/local/bin/bridge

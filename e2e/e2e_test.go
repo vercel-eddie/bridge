@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -13,9 +14,9 @@ import (
 // E2ESuite is the base test suite for e2e tests
 type E2ESuite struct {
 	suite.Suite
-	ctx     context.Context
-	cancel  context.CancelFunc
-	sandbox *SandboxContainer
+	ctx    context.Context
+	cancel context.CancelFunc
+	env    *Environment
 }
 
 // SetupSuite runs once before all tests in the suite
@@ -27,34 +28,24 @@ func (s *E2ESuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 
 	var err error
-	s.sandbox, err = NewSandbox(s.ctx, SandboxConfig{
-		Command: []string{"bridge", "server", "--name", "test-sandbox"},
-	})
-	require.NoError(s.T(), err, "failed to create sandbox")
+	s.env, err = SetupEnvironment(s.ctx, EnvironmentConfig{})
+	require.NoError(s.T(), err, "failed to setup environment")
 }
 
 // TearDownSuite runs once after all tests in the suite
 func (s *E2ESuite) TearDownSuite() {
-	if s.sandbox != nil {
-		if s.T().Failed() {
-			// Print logs on failure for debugging
-			logs, err := s.sandbox.Logs(s.ctx)
-			if err == nil {
-				s.T().Logf("Sandbox logs:\n%s", logs)
-			}
-		}
-		s.sandbox.Terminate(s.ctx)
+	if s.env != nil {
+		s.env.TearDown(s.ctx, s.T())
 	}
 	if s.cancel != nil {
 		s.cancel()
 	}
-	// Clean up the built binary
 	CleanupBuild()
 }
 
 // TestHealth verifies the sandbox responds to health checks
 func (s *E2ESuite) TestHealth() {
-	resp, err := http.Get(s.sandbox.URL() + "/health")
+	resp, err := http.Get(s.env.Sandbox.URL() + "/health")
 	s.Require().NoError(err, "health check request failed")
 	defer resp.Body.Close()
 
@@ -64,81 +55,20 @@ func (s *E2ESuite) TestHealth() {
 
 // TestDevcontainerVersion verifies the devcontainer can run bridge commands
 func (s *E2ESuite) TestDevcontainerVersion() {
-	devcontainer, err := NewDevcontainer(s.ctx, DevcontainerConfig{
-		Command: []string{"bridge", "--version"},
-	})
-	s.Require().NoError(err, "failed to create devcontainer")
-	defer devcontainer.Terminate(s.ctx)
-
-	// Wait for the container to exit
-	exitCode, err := devcontainer.WaitForExit(s.ctx)
+	exitCode, output, err := s.env.Devcontainer.Exec(s.ctx, []string{"bridge", "--version"})
 	s.Require().NoError(err)
-	s.Equal(int64(0), exitCode, "expected exit code 0")
-
-	logs, err := devcontainer.Logs(s.ctx)
-	s.Require().NoError(err)
-	s.Contains(logs, "bridge version")
+	s.Equal(0, exitCode, "expected exit code 0")
+	s.Contains(output, "bridge version")
 }
 
 // TestSSHConnection verifies that SSH works through the tunnel
 func (s *E2ESuite) TestSSHConnection() {
-	// Create a network for container-to-container communication
-	network, err := NewTestNetwork(s.ctx, "ssh-test")
-	s.Require().NoError(err, "failed to create network")
-	defer network.Terminate(s.ctx)
-
-	// Start sandbox
-	sandbox, err := NewSandbox(s.ctx, SandboxConfig{
-		Command: []string{"bridge", "server", "--name", "test-sandbox"},
-		Network: network.Name,
-	})
-	s.Require().NoError(err, "failed to create sandbox")
-	defer func() {
-		logs, _ := sandbox.Logs(s.ctx)
-		s.T().Logf("Sandbox logs:\n%s", logs)
-		sandbox.Terminate(s.ctx)
-	}()
-
-	// Get sandbox IP on the network
-	sandboxIP, err := sandbox.ContainerIP(s.ctx, network.Name)
-	s.Require().NoError(err, "failed to get sandbox IP")
-
-	// Start devcontainer
-	devcontainer, err := NewDevcontainer(s.ctx, DevcontainerConfig{
-		Network: network.Name,
-	})
-	s.Require().NoError(err, "failed to create devcontainer")
-	defer func() {
-		logs, _ := devcontainer.Logs(s.ctx)
-		s.T().Logf("Devcontainer logs:\n%s", logs)
-		devcontainer.Terminate(s.ctx)
-	}()
-
-	// Start bridge intercept in background to set up SSH proxy
-	sandboxURL := "http://" + sandboxIP + ":3000"
-	interceptCmd := []string{
-		"sh", "-c",
-		"bridge intercept " +
-			"--sandbox-url " + sandboxURL + " " +
-			"--function-url http://localhost:9999 " +
-			"--name test-sandbox " +
-			"--no-sync " +
-			"> /tmp/intercept.log 2>&1 &",
-	}
-	exitCode, _, err := devcontainer.Exec(s.ctx, interceptCmd)
-	s.Require().NoError(err, "failed to start bridge intercept")
-	s.Require().Equal(0, exitCode, "failed to start bridge intercept")
-
-	// Try to SSH through the tunnel and run echo
 	sshCmd := []string{
 		"sh", "-c",
 		"ssh bridge.test-sandbox echo 'hello from sandbox'",
 	}
-	exitCode, output, err := devcontainer.Exec(s.ctx, sshCmd)
+	exitCode, output, err := s.env.Devcontainer.Exec(s.ctx, sshCmd)
 
-	// Print intercept logs for debugging
-	_, interceptLogs, _ := devcontainer.Exec(s.ctx, []string{"cat", "/tmp/intercept.log"})
-	s.T().Logf("Intercept logs:\n%s", interceptLogs)
 	s.T().Logf("SSH output:\n%s", output)
 	s.T().Logf("SSH exit code: %d", exitCode)
 
@@ -149,74 +79,71 @@ func (s *E2ESuite) TestSSHConnection() {
 
 // TestMutagenSync verifies that mutagen syncs files between devcontainer and sandbox
 func (s *E2ESuite) TestMutagenSync() {
-	// Create a network for container-to-container communication
-	network, err := NewTestNetwork(s.ctx, "mutagen-test")
-	s.Require().NoError(err, "failed to create network")
-	defer network.Terminate(s.ctx)
-
-	// Start sandbox
-	sandbox, err := NewSandbox(s.ctx, SandboxConfig{
-		Command: []string{"bridge", "server", "--name", "test-sandbox"},
-		Network: network.Name,
-	})
-	s.Require().NoError(err, "failed to create sandbox")
-	defer func() {
-		logs, _ := sandbox.Logs(s.ctx)
-		s.T().Logf("Sandbox logs:\n%s", logs)
-		sandbox.Terminate(s.ctx)
-	}()
-
-	// Get sandbox IP on the network
-	sandboxIP, err := sandbox.ContainerIP(s.ctx, network.Name)
-	s.Require().NoError(err, "failed to get sandbox IP")
-
-	// Start devcontainer
-	devcontainer, err := NewDevcontainer(s.ctx, DevcontainerConfig{
-		Network:    network.Name,
-		Privileged: true,
-	})
-	s.Require().NoError(err, "failed to create devcontainer")
-	defer func() {
-		logs, _ := devcontainer.Logs(s.ctx)
-		s.T().Logf("Devcontainer logs:\n%s", logs)
-		devcontainer.Terminate(s.ctx)
-	}()
-
-	// Run bridge intercept
-	sandboxURL := "http://" + sandboxIP + ":3000"
-	interceptCmd := []string{
-		"sh", "-c",
-		"bridge intercept " +
-			"--sandbox-url " + sandboxURL + " " +
-			"--function-url http://localhost:9999 " +
-			"--name test-sandbox " +
-			"> /tmp/intercept.log 2>&1 &",
-	}
-	exitCode, _, err := devcontainer.Exec(s.ctx, interceptCmd)
-	s.Require().NoError(err, "failed to start bridge intercept")
-	s.Require().Equal(0, exitCode, "failed to start bridge intercept")
-
-	// Create a test file
-	exitCode, _, err = devcontainer.Exec(s.ctx, []string{"sh", "-c", "echo 'hello from devcontainer' > test.txt"})
+	// Create a test file in the devcontainer
+	exitCode, _, err := s.env.Devcontainer.Exec(s.ctx, []string{"sh", "-c", "echo 'hello from devcontainer' > test.txt"})
 	s.Require().NoError(err, "failed to create test file")
 	s.Require().Equal(0, exitCode, "failed to create test file")
 
 	// Wait for sync
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
-	// Print intercept logs
-	_, interceptLogs, _ := devcontainer.Exec(s.ctx, []string{"cat", "/tmp/intercept.log"})
-	s.T().Logf("Intercept logs:\n%s", interceptLogs)
-
-	// Debug: list sandbox directory contents and permissions
-	_, lsOutput, _ := sandbox.Exec(s.ctx, []string{"ls", "-la", "/vercel/sandbox"})
+	// Debug: list sandbox directory contents
+	_, lsOutput, _ := s.env.Sandbox.Exec(s.ctx, []string{"ls", "-la", "/vercel/sandbox"})
 	s.T().Logf("Sandbox /vercel/sandbox contents:\n%s", lsOutput)
 
 	// Check that the file exists in the sandbox
-	exitCode, fileContent, err := sandbox.Exec(s.ctx, []string{"cat", "/vercel/sandbox/test.txt"})
+	exitCode, fileContent, err := s.env.Sandbox.Exec(s.ctx, []string{"cat", "/vercel/sandbox/test.txt"})
 	s.Require().NoError(err, "failed to read file from sandbox")
 	s.Require().Equal(0, exitCode, "file not found in sandbox")
 	s.Contains(fileContent, "hello from devcontainer", "file content mismatch")
+}
+
+// TestDispatcherForward verifies that a request to the dispatcher is forwarded
+// through the tunnel to the devcontainer app.
+func (s *E2ESuite) TestDispatcherForward() {
+	// Start a simple HTTP server on port 3000 inside the devcontainer.
+	// Use busybox httpd without -f so it daemonizes and survives the exec session.
+	startServer := []string{
+		"sh", "-c",
+		"mkdir -p /tmp/www && echo 'hello from devcontainer app' > /tmp/www/index.html && httpd -p 3000 -h /tmp/www",
+	}
+	exitCode, output, err := s.env.Devcontainer.Exec(s.ctx, startServer)
+	s.Require().NoError(err, "failed to start HTTP server")
+	s.Require().Equal(0, exitCode, "failed to start HTTP server: %s", output)
+
+	// Verify the server is listening before sending traffic through the tunnel.
+	exitCode, output, err = s.env.Devcontainer.Exec(s.ctx, []string{"wget", "-q", "-O", "-", "http://127.0.0.1:3000/index.html"})
+	s.Require().NoError(err, "httpd not reachable")
+	s.Require().Equal(0, exitCode, "httpd not reachable: %s", output)
+
+	// Send a request to the dispatcher — this triggers the tunnel pairing
+	// (dispatcher connects to sandbox on first request) and forwards
+	// through: dispatcher → sandbox → devcontainer intercept → local app.
+	// Retry a few times since the first request triggers tunnel setup.
+	var resp *http.Response
+	for attempt := 1; attempt <= 5; attempt++ {
+		resp, err = http.Get(s.env.Dispatcher.URL() + "/index.html")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		s.T().Logf("Attempt %d: status=%d err=%v", attempt, resp.StatusCode, err)
+		time.Sleep(2 * time.Second)
+	}
+
+	s.Require().NoError(err, "request to dispatcher failed")
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err, "failed to read response body")
+
+	s.T().Logf("Dispatcher response status: %d", resp.StatusCode)
+	s.T().Logf("Dispatcher response body: %s", string(body))
+
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.Contains(string(body), "hello from devcontainer app")
 }
 
 // TestE2ESuite runs the e2e test suite

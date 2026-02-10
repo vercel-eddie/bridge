@@ -35,6 +35,8 @@ type SandboxConfig struct {
 	ExposedPorts []string
 	// Network is the Docker network to join
 	Network string
+	// NetworkAliases are DNS aliases for this container on the network
+	NetworkAliases []string
 }
 
 // NewSandbox creates and starts a new sandbox container running the bridge CLI.
@@ -69,6 +71,11 @@ func NewSandbox(ctx context.Context, cfg SandboxConfig) (*SandboxContainer, erro
 
 	if cfg.Network != "" {
 		req.Networks = []string{cfg.Network}
+		if len(cfg.NetworkAliases) > 0 {
+			req.NetworkAliases = map[string][]string{
+				cfg.Network: cfg.NetworkAliases,
+			}
+		}
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
