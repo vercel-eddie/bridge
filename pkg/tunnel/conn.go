@@ -13,14 +13,13 @@ import (
 
 // Conn represents a single logical connection multiplexed over the tunnel.
 type Conn struct {
-	id         string
-	source     string // source address (ip:port)
-	dest       string // destination address (ip:port)
-	client     *Client
-	readBuf    chan []byte
-	closed     atomic.Bool
-	closeOnce  sync.Once
-	firstWrite atomic.Bool
+	id        string
+	source    string // source address (ip:port)
+	dest      string // destination address (ip:port)
+	client    *Client
+	readBuf   chan []byte
+	closed    atomic.Bool
+	closeOnce sync.Once
 }
 
 // newConn creates a new tunnel connection.
@@ -55,21 +54,15 @@ func (c *Conn) Read(b []byte) (int, error) {
 }
 
 // Write writes data to the tunnel connection.
+// Every write includes source/dest addresses because the dispatcher is a
+// serverless function that may be replaced between writes.
 func (c *Conn) Write(b []byte) (int, error) {
 	if c.closed.Load() {
 		return 0, io.ErrClosedPipe
 	}
 
-	// First write includes source/dest addresses so the bridge knows where to connect
-	if c.firstWrite.CompareAndSwap(false, true) {
-		if err := c.client.sendDataWithAddresses(c.id, b, c.source, c.dest); err != nil {
-			c.firstWrite.Store(false) // Reset on failure
-			return 0, err
-		}
-	} else {
-		if err := c.client.sendData(c.id, b); err != nil {
-			return 0, err
-		}
+	if err := c.client.sendDataWithAddresses(c.id, b, c.source, c.dest); err != nil {
+		return 0, err
 	}
 
 	return len(b), nil

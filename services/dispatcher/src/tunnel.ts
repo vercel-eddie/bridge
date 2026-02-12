@@ -26,6 +26,8 @@ interface PendingRequest {
 interface OutgoingConnection {
   socket: net.Socket;
   connectionId: string;
+  connected: boolean;
+  pendingData: Buffer[];
 }
 
 export class TunnelClient {
@@ -290,7 +292,7 @@ export class TunnelClient {
     const dest = message.dest;
 
     // Check if we already have a connection for this connectionId
-    let conn = this.outgoingConnections.get(connectionId);
+    const conn = this.outgoingConnections.get(connectionId);
 
     if (message.close) {
       logger.debug(`Received close for connection: connId=${connectionId}`);
@@ -298,10 +300,14 @@ export class TunnelClient {
       return;
     }
 
-    // Existing connection — just forward data
+    // Existing connection — forward or buffer data
     if (conn) {
       if (message.data.length > 0) {
-        conn.socket.write(Buffer.from(message.data));
+        if (conn.connected) {
+          conn.socket.write(Buffer.from(message.data));
+        } else {
+          conn.pendingData.push(Buffer.from(message.data));
+        }
       }
       return;
     }
@@ -312,17 +318,32 @@ export class TunnelClient {
       return;
     }
 
-    // Create new outgoing connection
-    logger.debug(`Creating outgoing connection: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
+    // Register immediately to prevent duplicate connection attempts
     const socket = new net.Socket();
+    const newConn: OutgoingConnection = {
+      socket,
+      connectionId,
+      connected: false,
+      pendingData: message.data.length > 0 ? [Buffer.from(message.data)] : [],
+    };
+    this.outgoingConnections.set(connectionId, newConn);
+
+    logger.debug(`Creating outgoing connection: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
 
     try {
       await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Connection timed out to ${dest.ip}:${dest.port}`));
+        }, 10000);
         socket.connect(dest.port, dest.ip, () => {
+          clearTimeout(timeout);
           logger.debug(`Outgoing connection established: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
           resolve();
         });
-        socket.on("error", reject);
+        socket.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
       });
     } catch (err) {
       logger.error(`Failed to connect: connId=${connectionId} dst=${dest.ip}:${dest.port}`, err);
@@ -330,8 +351,13 @@ export class TunnelClient {
       return;
     }
 
-    conn = {socket, connectionId};
-    this.outgoingConnections.set(connectionId, conn);
+    newConn.connected = true;
+
+    // Flush buffered data
+    for (const buf of newConn.pendingData) {
+      socket.write(buf);
+    }
+    newConn.pendingData = [];
 
     // Handle incoming data from the outgoing connection
     socket.on("data", (data) => {
@@ -370,14 +396,9 @@ export class TunnelClient {
       this.pendingRequests.delete(connectionId);
     });
 
-    socket.on("error", (err) => {
-      logger.error(`Outgoing connection error: connId=${connectionId}`, err);
-      this.cleanupConnection(connectionId, err);
-    });
-
     // Send initial data to the destination
     if (message.data.length > 0) {
-      conn.socket.write(Buffer.from(message.data));
+      socket.write(Buffer.from(message.data));
     }
   }
 
