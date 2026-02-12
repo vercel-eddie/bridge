@@ -49,6 +49,11 @@
       "type": "string",
       "description": "Container workspace folder path — pass ${containerWorkspaceFolder} from devcontainer.json",
       "default": ""
+    },
+    "forwardDomains": {
+      "type": "string",
+      "description": "Comma-separated list of domain patterns to intercept and resolve through the tunnel (e.g., '*.vercel.app,example.com')",
+      "default": ""
     }
   },
   "capAdd": [

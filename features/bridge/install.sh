@@ -87,6 +87,7 @@ export SYNC_SOURCE="${SYNCSOURCE:-.}"
 export SYNC_TARGET="${SYNCTARGET:-}"
 export APP_PORT="${APPPORT:-3000}"
 export BRIDGE_ENV_FILE="${env_file}"
+export FORWARD_DOMAINS="${FORWARDDOMAINS:-}"
 EOF
 }
 
@@ -139,6 +140,7 @@ if [ -n "$SANDBOX_URL" ]; then
     sudo SANDBOX_URL="$SANDBOX_URL" \
          FUNCTION_URL="$FUNCTION_URL" \
          VERCEL_AUTOMATION_BYPASS_SECRET="$BYPASS_SECRET" \
+         FORWARD_DOMAINS="$FORWARD_DOMAINS" \
          /usr/local/bin/bridge intercept &
 fi
 
