@@ -36,12 +36,21 @@ export class TunnelClient {
   private isConnected = false;
   private processingPromise: Promise<void> | null = null;
   private doneResolve: (() => void) | null = null;
+  private reconnectPromise: Promise<void> | null = null;
 
   constructor(config: TunnelConfig) {
     this.config = config;
   }
 
   async connect(): Promise<void> {
+    // Clean up old connection if any
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      try { this.ws.close(); } catch {}
+      this.ws = null;
+    }
+    this.isConnected = false;
+
     // Convert HTTP URL to WebSocket URL
     let wsUrl = this.config.serverAddr;
     if (wsUrl.startsWith("https://")) {
@@ -81,7 +90,7 @@ export class TunnelClient {
           close: false,
         });
 
-        this.sendMessage(registrationMsg);
+        this.sendMessageDirect(registrationMsg);
 
         // Start processing incoming messages
         this.processingPromise = new Promise<void>((doneResolve) => {
@@ -103,7 +112,12 @@ export class TunnelClient {
       this.ws.on("close", () => {
         logger.debug("WebSocket connection closed");
         this.isConnected = false;
-        this.cleanupAllConnections(new Error("WebSocket connection closed"));
+        // Reject pending HTTP requests — they'll be retried by the caller
+        for (const [, pending] of this.pendingRequests) {
+          pending.reject(new Error("WebSocket connection closed"));
+        }
+        this.pendingRequests.clear();
+        // Don't destroy outgoing connections — they may resume after reconnect
         if (this.doneResolve) {
           this.doneResolve();
         }
@@ -113,8 +127,6 @@ export class TunnelClient {
         logger.error("WebSocket error:", err);
         if (!this.isConnected) {
           reject(err);
-        } else {
-          this.cleanupAllConnections(err);
         }
       });
 
@@ -131,13 +143,59 @@ export class TunnelClient {
     });
   }
 
-  private sendMessage(msg: Message): void {
+  /**
+   * Ensures the WebSocket is connected, reconnecting if necessary.
+   * Deduplicates concurrent reconnection attempts.
+   */
+  private async ensureConnected(): Promise<void> {
+    if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
+    }
+
+    logger.info("WebSocket disconnected, reconnecting...");
+    this.reconnectPromise = this.connect().finally(() => {
+      this.reconnectPromise = null;
+    });
+
+    return this.reconnectPromise;
+  }
+
+  /**
+   * Send a message directly without reconnection (used during connect handshake).
+   */
+  private sendMessageDirect(msg: Message): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error("Cannot send message: WebSocket not connected");
+      return false;
+    }
+    const binary = toBinary(MessageSchema, msg);
+    this.ws.send(binary);
+    return true;
+  }
+
+  /**
+   * Send a message, reconnecting the WebSocket if necessary.
+   */
+  private async sendMessage(msg: Message): Promise<boolean> {
+    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      try {
+        await this.ensureConnected();
+      } catch (err) {
+        logger.error("Reconnection failed:", err);
+        return false;
+      }
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
     }
 
     const binary = toBinary(MessageSchema, msg);
     this.ws.send(binary);
+    return true;
   }
 
   /**
@@ -148,27 +206,6 @@ export class TunnelClient {
     if (this.processingPromise) {
       await this.processingPromise;
     }
-  }
-
-  private queueMessage(msg: Message): void {
-    this.sendMessage(msg);
-  }
-
-  /**
-   * Cleans up all pending requests and outgoing connections.
-   */
-  private cleanupAllConnections(error: Error): void {
-    // Reject all pending requests
-    for (const [_connectionId, pending] of this.pendingRequests) {
-      pending.reject(error);
-    }
-    this.pendingRequests.clear();
-
-    // Close all outgoing connections
-    for (const conn of this.outgoingConnections.values()) {
-      conn.socket.destroy();
-    }
-    this.outgoingConnections.clear();
   }
 
   /**
@@ -252,86 +289,93 @@ export class TunnelClient {
     const connectionId = message.connectionId;
     const dest = message.dest;
 
-    if (!dest) {
-      console.error("Outgoing message missing destination");
-      return;
-    }
-
     // Check if we already have a connection for this connectionId
     let conn = this.outgoingConnections.get(connectionId);
 
     if (message.close) {
-      // Close the connection and clean up everything for this connectionId
       logger.debug(`Received close for connection: connId=${connectionId}`);
       this.cleanupConnection(connectionId);
       return;
     }
 
-    if (!conn) {
-      // Create new outgoing connection
-      logger.debug(`Creating outgoing connection: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
-      const socket = new net.Socket();
-
-      try {
-        await new Promise<void>((resolve, reject) => {
-          socket.connect(dest.port, dest.ip, () => {
-            logger.debug(`Outgoing connection established: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
-            resolve();
-          });
-          socket.on("error", reject);
-        });
-      } catch (err) {
-        logger.error(`Failed to connect: connId=${connectionId} dst=${dest.ip}:${dest.port}`, err);
-        this.cleanupConnection(connectionId, err instanceof Error ? err : new Error(String(err)));
-        return;
+    // Existing connection — just forward data
+    if (conn) {
+      if (message.data.length > 0) {
+        conn.socket.write(Buffer.from(message.data));
       }
-
-      conn = {socket, connectionId};
-      this.outgoingConnections.set(connectionId, conn);
-
-      // Handle incoming data from the outgoing connection
-      socket.on("data", (data) => {
-        logger.debug(`Received response data: connId=${connectionId} dataLen=${data.length}`);
-        const responseMsg = create(MessageSchema, {
-          source: create(Message_AddressSchema, {ip: dest.ip, port: dest.port}),
-          dest: message.source ? create(Message_AddressSchema, {
-            ip: message.source.ip,
-            port: message.source.port
-          }) : undefined,
-          data: new Uint8Array(data),
-          connectionId,
-          close: false,
-        });
-        this.queueMessage(responseMsg);
-      });
-
-      socket.on("close", () => {
-        logger.debug(`Socket closed: connId=${connectionId}`);
-        // Send close message back through tunnel
-        const closeMsg = create(MessageSchema, {
-          source: create(Message_AddressSchema, {ip: dest.ip, port: dest.port}),
-          dest: message.source ? create(Message_AddressSchema, {
-            ip: message.source.ip,
-            port: message.source.port
-          }) : undefined,
-          data: new Uint8Array(),
-          connectionId,
-          close: true,
-        });
-        this.queueMessage(closeMsg);
-        // Clean up this connection (but don't reject pending - close is normal)
-        this.outgoingConnections.delete(connectionId);
-        this.pendingRequests.delete(connectionId);
-      });
-
-      socket.on("error", (err) => {
-        logger.error(`Outgoing connection error: connId=${connectionId}`, err);
-        // Clean up and reject pending requests for this connection
-        this.cleanupConnection(connectionId, err);
-      });
+      return;
     }
 
-    // Send data to the destination
+    // New connection requires a destination
+    if (!dest) {
+      logger.error(`Outgoing message missing destination: connId=${connectionId}`);
+      return;
+    }
+
+    // Create new outgoing connection
+    logger.debug(`Creating outgoing connection: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
+    const socket = new net.Socket();
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.connect(dest.port, dest.ip, () => {
+          logger.debug(`Outgoing connection established: connId=${connectionId} dst=${dest.ip}:${dest.port}`);
+          resolve();
+        });
+        socket.on("error", reject);
+      });
+    } catch (err) {
+      logger.error(`Failed to connect: connId=${connectionId} dst=${dest.ip}:${dest.port}`, err);
+      this.cleanupConnection(connectionId, err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+
+    conn = {socket, connectionId};
+    this.outgoingConnections.set(connectionId, conn);
+
+    // Handle incoming data from the outgoing connection
+    socket.on("data", (data) => {
+      logger.debug(`Received response data: connId=${connectionId} dataLen=${data.length}`);
+      const responseMsg = create(MessageSchema, {
+        source: create(Message_AddressSchema, {ip: dest.ip, port: dest.port}),
+        dest: message.source ? create(Message_AddressSchema, {
+          ip: message.source.ip,
+          port: message.source.port
+        }) : undefined,
+        data: new Uint8Array(data),
+        connectionId,
+        close: false,
+      });
+      this.sendMessage(responseMsg).catch((err) => {
+        logger.error(`Failed to send response data: connId=${connectionId}`, err);
+      });
+    });
+
+    socket.on("close", () => {
+      logger.debug(`Socket closed: connId=${connectionId}`);
+      const closeMsg = create(MessageSchema, {
+        source: create(Message_AddressSchema, {ip: dest.ip, port: dest.port}),
+        dest: message.source ? create(Message_AddressSchema, {
+          ip: message.source.ip,
+          port: message.source.port
+        }) : undefined,
+        data: new Uint8Array(),
+        connectionId,
+        close: true,
+      });
+      this.sendMessage(closeMsg).catch((err) => {
+        logger.debug(`Failed to send close message: connId=${connectionId}`, err);
+      });
+      this.outgoingConnections.delete(connectionId);
+      this.pendingRequests.delete(connectionId);
+    });
+
+    socket.on("error", (err) => {
+      logger.error(`Outgoing connection error: connId=${connectionId}`, err);
+      this.cleanupConnection(connectionId, err);
+    });
+
+    // Send initial data to the destination
     if (message.data.length > 0) {
       conn.socket.write(Buffer.from(message.data));
     }
@@ -350,7 +394,9 @@ export class TunnelClient {
           error: err ? err.message : "",
         }),
       });
-      this.queueMessage(response);
+      this.sendMessage(response).catch((sendErr) => {
+        logger.error(`Failed to send DNS response: requestId=${requestId}`, sendErr);
+      });
       logger.debug(`DNS resolution response: requestId=${requestId} addresses=${addresses} error=${err?.message ?? ""}`);
     });
   }
@@ -361,6 +407,9 @@ export class TunnelClient {
     dest: { ip: string; port: number }
   ): Promise<Message> {
     const connectionId = randomUUID();
+
+    // Ensure connected before setting up the request
+    await this.ensureConnected();
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(connectionId, {
@@ -377,7 +426,11 @@ export class TunnelClient {
         close: false,
       });
 
-      this.queueMessage(msg);
+      if (!this.sendMessageDirect(msg)) {
+        this.pendingRequests.delete(connectionId);
+        reject(new Error("WebSocket not connected"));
+        return;
+      }
 
       // Set timeout for request
       setTimeout(() => {
@@ -403,6 +456,7 @@ export class TunnelClient {
   disconnect(): void {
     this.isConnected = false;
     if (this.ws) {
+      this.ws.removeAllListeners();
       this.ws.close();
       this.ws = null;
     }
