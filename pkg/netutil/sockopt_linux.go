@@ -1,6 +1,6 @@
 //go:build linux
 
-package commands
+package netutil
 
 import (
 	"fmt"
@@ -18,7 +18,9 @@ type sockaddrIn struct {
 	Zero   [8]byte
 }
 
-func getOriginalDst(conn net.Conn) (string, error) {
+// OriginalDest returns the original destination address of a connection
+// before it was redirected by iptables. On Linux this uses SO_ORIGINAL_DST.
+func OriginalDest(conn net.Conn) (string, error) {
 	tcpConn, ok := conn.(*net.TCPConn)
 	if !ok {
 		return "", fmt.Errorf("not a TCP connection")
@@ -49,7 +51,6 @@ func getOriginalDst(conn net.Conn) (string, error) {
 		return "", fmt.Errorf("getsockopt SO_ORIGINAL_DST failed: %v", errno)
 	}
 
-	// Port is in network byte order (big endian)
 	port := int(addr.Port[0])<<8 + int(addr.Port[1])
 	ip := net.IPv4(addr.Addr[0], addr.Addr[1], addr.Addr[2], addr.Addr[3])
 

@@ -156,6 +156,31 @@ while all resource manipulation within bridge namespaces is authorized via the p
 * Implement `ListBridges` by querying namespaces with the `bridge.dev/managed-by: administrator` label
 * Implement `DeleteBridge` to tear down all resources in the target namespace and delete the namespace
 
+## Proxy gRPC Service
+
+When running as `bridge server --proxy`, the bridge server should run as a gRPC service instead of the default
+WebSocket-based service. This is the mode used by the proxy container that replaces the application container in the
+bridged pod.
+
+The key difference from the WebSocket approach is that each operation is a discrete gRPC call rather than multiplexing
+everything over a single WebSocket pipe. This gives us proper request/response semantics, built-in error handling per
+call, and makes the proxy service easier to reason about.
+
+### RPCs
+
+1. **`ResolveDNSQuery`** (unary) — Resolves a DNS query on behalf of the intercepting client. The bridge intercept
+   running in the devcontainer sends DNS queries to the proxy, which resolves them against the cluster's DNS (e.g.
+   CoreDNS). This replaces the DNS resolution messages that were previously sent over the WebSocket tunnel.
+2. **`TunnelNetwork`** (bidirectional streaming) — Tunnels network traffic (TCP or UDP) to an upstream service. The
+   client opens a stream, sends the target host, port, and protocol, and then both sides exchange data frames until
+   the connection is closed. This replaces the data frames that were previously multiplexed over the WebSocket.
+
+### Tasks
+
+* Define the `BridgeProxyService` proto with `ResolveDNSQuery` and `TunnelNetwork` RPCs
+* Implement the gRPC server in the `bridge server --proxy` code path
+* Update `bridge intercept` to use the gRPC client when connecting to a proxy (vs WebSocket for Vercel tunnels)
+
 ## Create a `bridge create --connect` command
 
 This command will be what the Developers/agents use on their machines. The command should:

@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-workloads
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: test-workloads
+data:
+  LOG_LEVEL: "debug"
+  FEATURE_FLAGS: "new-ui,dark-mode"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: test-workloads
+type: Opaque
+stringData:
+  DATABASE_URL: "postgres://user:pass@db.internal:5432/myapp"
+  API_KEY: "sk-test-1234567890"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: unused-credentials
+  namespace: test-workloads
+type: Opaque
+stringData:
+  STRIPE_KEY: "sk-stripe-unused-9999"
+  SLACK_WEBHOOK: "https://hooks.slack.com/services/T00/B00/xxxxx"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unused-config
+  namespace: test-workloads
+data:
+  ANALYTICS_ID: "UA-000000-1"
+  DEPRECATED_FLAG: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-api-server
+  namespace: test-workloads
+  labels:
+    app: test-api-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-api-server
+  template:
+    metadata:
+      labels:
+        app: test-api-server
+    spec:
+      containers:
+        - name: testserver
+          image: "{{TESTSERVER_IMAGE}}"
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DATABASE_URL
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: API_KEY
+          envFrom:
+            - configMapRef:
+                name: app-config
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-api-server
+  namespace: test-workloads
+spec:
+  selector:
+    app: test-api-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

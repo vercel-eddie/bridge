@@ -2,32 +2,12 @@
   "id": "bridge",
   "version": "1.4.0",
   "name": "Bridge Tunnel Client",
-  "description": "Connects to the bridge server running on a Vercel Sandbox to forward inbound requests to local applications and intercept outbound traffic via iptables.",
+  "description": "Connects to a bridge proxy server to intercept outbound traffic via iptables and tunnel it over gRPC.",
   "entrypoint": "/usr/local/bin/bridge-entrypoint.sh",
   "options": {
-    "sandboxUrl": {
+    "bridgeServerAddr": {
       "type": "string",
-      "description": "URL of the bridge server running on the Vercel Sandbox (e.g., https://sandbox-abc123.vercel.run)",
-      "default": ""
-    },
-    "functionUrl": {
-      "type": "string",
-      "description": "URL of the dispatcher function (required for tunnel registration)",
-      "default": ""
-    },
-    "sandboxName": {
-      "type": "string",
-      "description": "Name for the sandbox (used for SSH config alias)",
-      "default": ""
-    },
-    "syncSource": {
-      "type": "string",
-      "description": "Local directory to sync from ",
-      "default": "."
-    },
-    "syncTarget": {
-      "type": "string",
-      "description": "Remote directory on sandbox to sync to",
+      "description": "Address of the bridge proxy server (e.g. k8spf:///pod.ns:9090 or localhost:9090)",
       "default": ""
     },
     "appPort": {
@@ -39,11 +19,6 @@
       "type": "string",
       "description": "Version of bridge CLI to install (e.g., 'v1.0.0' or 'edge')",
       "default": "edge"
-    },
-    "envFile": {
-      "type": "string",
-      "description": "Path to env file containing VERCEL_AUTOMATION_BYPASS_SECRET (relative to workspace)",
-      "default": ".env.development.local"
     },
     "workspacePath": {
       "type": "string",
@@ -60,7 +35,6 @@
     "NET_ADMIN"
   ],
   "installsAfter": [
-    "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/vercel-eddie/bridge/vercel-cli"
+    "ghcr.io/devcontainers/features/common-utils"
   ]
 }

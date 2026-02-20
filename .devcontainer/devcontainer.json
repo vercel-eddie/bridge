@@ -1,0 +1,4 @@
+{
+  "name": "bridge",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
+}

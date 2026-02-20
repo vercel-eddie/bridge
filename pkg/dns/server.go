@@ -190,6 +190,11 @@ func getSystemResolver() string {
 //   - "**.example.com" matches "foo.example.com" and "bar.foo.example.com"
 //   - "api.*.internal" matches "api.foo.internal"
 func matchWildcard(pattern, hostname string) bool {
+	// Handle match-all wildcard.
+	if pattern == "*" {
+		return true
+	}
+
 	// Handle exact match
 	if pattern == hostname {
 		return true

@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -31,11 +30,6 @@ func newConn(id, source, dest string, client *Client) *Conn {
 		client:  client,
 		readBuf: make(chan []byte, 100),
 	}
-}
-
-// generateConnectionID creates a deterministic connection ID from source and destination.
-func generateConnectionID(sourceIP string, sourcePort int, destIP string, destPort int) string {
-	return fmt.Sprintf("%s:%d->%s:%d", sourceIP, sourcePort, destIP, destPort)
 }
 
 // Read reads data from the tunnel connection.

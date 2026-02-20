@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package bridge.v1;
+
+// AdministratorService manages bridge lifecycle in a Kubernetes cluster.
+service AdministratorService {
+  // CreateBridge provisions a new bridge by cloning a source deployment's config
+  // into a dedicated namespace, swapping the application container for the bridge proxy.
+  rpc CreateBridge(CreateBridgeRequest) returns (CreateBridgeResponse);
+
+  // ListBridges returns all active bridges, optionally filtered by device ID.
+  rpc ListBridges(ListBridgesRequest) returns (ListBridgesResponse);
+
+  // DeleteBridge tears down a specific bridge, removing all resources and the namespace.
+  rpc DeleteBridge(DeleteBridgeRequest) returns (DeleteBridgeResponse);
+}
+
+// CreateBridgeRequest is sent by the bridge CLI to the Administrator to provision a new bridge.
+message CreateBridgeRequest {
+  // The KSUID identifying the developer's device (from ~/.bridge/device-id.txt).
+  string device_id = 1 [json_name = "device_id"];
+
+  // The name of the source Deployment to clone. If empty, the Administrator creates
+  // a simple Deployment with just the bridge proxy container.
+  string source_deployment = 2 [json_name = "source_deployment"];
+
+  // The namespace of the source Deployment. Required if source_deployment is set.
+  string source_namespace = 3 [json_name = "source_namespace"];
+
+  // If true, tear down and recreate an existing bridge for the same deployment
+  // without returning an ALREADY_EXISTS error.
+  bool force = 4;
+}
+
+// CreateBridgeResponse is returned by the Administrator after a bridge is provisioned.
+message CreateBridgeResponse {
+  // The namespace where the bridged pod was created (bridge-<device-id>).
+  string namespace = 1;
+
+  // The name of the bridged pod.
+  string pod_name = 2 [json_name = "pod_name"];
+
+  // The port on the bridged pod where the bridge proxy server is listening.
+  int32 port = 3;
+}
+
+// ListBridgesRequest is sent to query active bridges.
+message ListBridgesRequest {
+  // The device ID to list bridges for. Required.
+  string device_id = 1 [json_name = "device_id"];
+}
+
+// BridgeInfo describes an active bridge.
+message BridgeInfo {
+  // The device ID that owns this bridge.
+  string device_id = 1 [json_name = "device_id"];
+
+  // The source deployment this bridge was cloned from.
+  string source_deployment = 2 [json_name = "source_deployment"];
+
+  // The source namespace of the deployment.
+  string source_namespace = 3 [json_name = "source_namespace"];
+
+  // The namespace where the bridge is running.
+  string namespace = 4;
+
+  // When the bridge was created (RFC 3339).
+  string created_at = 5 [json_name = "created_at"];
+
+  // Current status of the bridge (e.g., "running", "pending", "error").
+  string status = 6;
+}
+
+// ListBridgesResponse contains all active bridges matching the filter.
+message ListBridgesResponse {
+  repeated BridgeInfo bridges = 1;
+}
+
+// DeleteBridgeRequest identifies a bridge to tear down.
+message DeleteBridgeRequest {
+  // The device ID that owns the bridge.
+  string device_id = 1 [json_name = "device_id"];
+
+  // The source deployment name to identify which bridge to delete.
+  // If empty, deletes the entire device namespace and all bridges within it.
+  string source_deployment = 2 [json_name = "source_deployment"];
+}
+
+// DeleteBridgeResponse is returned after a bridge is torn down.
+message DeleteBridgeResponse {}

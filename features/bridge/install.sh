@@ -46,7 +46,19 @@ get_latest_version() {
 
 # Download and install bridge binary
 install_bridge() {
+    if [ -x /usr/local/bin/bridge ]; then
+        echo "Bridge binary already installed, skipping download"
+        return 0
+    fi
+
     local version="${BRIDGEVERSION:-edge}"
+
+    # In dev mode the binary is expected to be provided via bind mount at runtime.
+    if [ "$version" = "dev" ]; then
+        echo "Dev mode: skipping binary download (expecting bind mount at runtime)"
+        return 0
+    fi
+
     local arch=$(get_arch)
     local os="linux"
 
@@ -77,27 +89,11 @@ install_bridge() {
 
 # Write environment configuration to /etc/profile.d (sourced by entrypoint)
 write_env_config() {
-    local env_file="${ENVFILE:-.env.development.local}"
-
     cat > /etc/profile.d/bridge.sh << EOF
-export SANDBOX_URL="${SANDBOXURL:-}"
-export FUNCTION_URL="${FUNCTIONURL:-}"
-export SANDBOX_NAME="${SANDBOXNAME:-}"
-export SYNC_SOURCE="${SYNCSOURCE:-.}"
-export SYNC_TARGET="${SYNCTARGET:-}"
+export BRIDGE_SERVER_ADDR="${BRIDGESERVERADDR:-}"
 export APP_PORT="${APPPORT:-3000}"
-export BRIDGE_ENV_FILE="${env_file}"
 export FORWARD_DOMAINS="${FORWARDDOMAINS:-$FORWARD_DOMAINS}"
 EOF
-}
-
-# Helper to read a value from an env file
-# Usage: read_env_var ENV_FILE VAR_NAME
-read_env_var() {
-    local file="$1" var="$2"
-    if [ -f "$file" ]; then
-        grep -m1 "^${var}=" "$file" | sed "s/^${var}=//" | sed 's/^"//;s/"$//'
-    fi
 }
 
 # Create entrypoint script
@@ -116,32 +112,12 @@ EOF
 # Source profile in case env vars aren't inherited
 [ -f /etc/profile.d/bridge.sh ] && source /etc/profile.d/bridge.sh
 
-# Function to read a value from an env file
-read_env_file() {
-    local var_name="$1"
-    local env_file=""
-    local env_filename="${BRIDGE_ENV_FILE:-.env.development.local}"
-
-    # Try baked workspace path first, then fall back to find
-    if [ -n "$BRIDGE_WORKSPACE_PATH" ] && [ -f "${BRIDGE_WORKSPACE_PATH}/${env_filename}" ]; then
-        env_file="${BRIDGE_WORKSPACE_PATH}/${env_filename}"
-    else
-        env_file=$(find /workspaces -maxdepth 5 -name "$env_filename" -type f 2>/dev/null | head -1)
-    fi
-
-    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
-        grep -m1 "^${var_name}=" "$env_file" 2>/dev/null | sed "s/^${var_name}=//" | sed 's/^"//;s/"$//'
-    fi
-}
-
 # Run bridge intercept as root (required for iptables)
-if [ -n "$SANDBOX_URL" ]; then
-    BYPASS_SECRET=$(read_env_file "VERCEL_AUTOMATION_BYPASS_SECRET")
-    sudo SANDBOX_URL="$SANDBOX_URL" \
-         FUNCTION_URL="$FUNCTION_URL" \
-         VERCEL_AUTOMATION_BYPASS_SECRET="$BYPASS_SECRET" \
+if [ -n "$BRIDGE_SERVER_ADDR" ]; then
+    sudo BRIDGE_SERVER_ADDR="$BRIDGE_SERVER_ADDR" \
          FORWARD_DOMAINS="$FORWARD_DOMAINS" \
-         /usr/local/bin/bridge intercept &
+         KUBECONFIG="${KUBECONFIG:-}" \
+         /usr/local/bin/bridge intercept > /tmp/bridge-intercept.log 2>&1 &
 fi
 
 exec "$@"

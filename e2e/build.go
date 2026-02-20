@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,4 +62,56 @@ func CleanupBuild() {
 	if binaryPath != "" {
 		os.RemoveAll(filepath.Dir(binaryPath))
 	}
+}
+
+// BuildAdministratorImage builds the administrator Docker image from the
+// project's services/administrator/Dockerfile. The build context is the
+// project root so that go.mod, cmd/, pkg/, etc. are all available.
+func BuildAdministratorImage(ctx context.Context, tag string) error {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("find project root: %w", err)
+	}
+
+	dockerfile := filepath.Join("services", "administrator", "Dockerfile")
+	slog.Info("Building administrator image", "tag", tag, "dockerfile", dockerfile)
+
+	cmd := exec.CommandContext(ctx, "docker", "build",
+		"-t", tag,
+		"-f", dockerfile,
+		".",
+	)
+	cmd.Dir = projectRoot
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker build: %w", err)
+	}
+	return nil
+}
+
+// BuildTestServerImage builds the test server Docker image from e2e/testserver/Dockerfile.
+// The build context is the e2e/testserver directory.
+func BuildTestServerImage(ctx context.Context, tag string) error {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("find project root: %w", err)
+	}
+
+	buildCtx := filepath.Join(projectRoot, "e2e", "testserver")
+	slog.Info("Building test server image", "tag", tag, "context", buildCtx)
+
+	cmd := exec.CommandContext(ctx, "docker", "build",
+		"-t", tag,
+		".",
+	)
+	cmd.Dir = buildCtx
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker build: %w", err)
+	}
+	return nil
 }

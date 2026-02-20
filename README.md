@@ -16,6 +16,64 @@ To generate, install [buf](https://buf.build/docs/cli/installation/) and run:
 make
 ```
 
+## Local Development (k3d)
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/)
+- [k3d](https://k3d.io/) (`brew install k3d`)
+- Go 1.25+
+
+### 1. Create a k3d cluster
+
+```bash
+k3d cluster create bridge
+```
+
+This creates a lightweight k3s cluster running in Docker. Your kubeconfig context is automatically switched to `k3d-bridge`.
+
+### 2. Seed the cluster
+
+Build images, import them into k3d, and apply the Kubernetes manifests:
+
+```bash
+go run deploy/main.go -cluster bridge
+```
+
+This deploys the bridge administrator (namespace `bridge`) and a test HTTP server (namespace `test-workloads`).
+
+### 3. Build the CLI
+
+```bash
+go build -o bridge ./cmd/bridge
+```
+
+To test the devcontainer feature locally, also build a Linux binary:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/bridge-linux ./cmd/bridge
+```
+
+### 4. Run commands
+
+Create a bridge to the test server:
+
+```bash
+./bridge create test-api-server -n test-workloads --connect
+```
+
+Or start just the administrator port-forward to verify connectivity:
+
+```bash
+kubectl port-forward -n bridge svc/administrator 9090:9090
+```
+
+### Teardown
+
+```bash
+k3d cluster delete bridge
+```
+
 ## Architecture
 
 See [here](./docs/architecture.md) for more info.

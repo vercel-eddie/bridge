@@ -1,0 +1,16 @@
+{
+  "name": "bridge-test-api-server",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/vercel-eddie/bridge/features/bridge:edge": {
+      "appPort": "3000",
+      "bridgeServerAddr": "k8spf:///test-api-server-7ffc5c795-7kmmm.bridge-39twy3bsmtyrjxgul8lul9cugfe:8080",
+      "bridgeVersion": "dev",
+      "forwardDomains": "*",
+      "workspacePath": "${containerWorkspaceFolder}"
+    }
+  },
+  "capAdd": [
+    "NET_ADMIN"
+  ]
+}
