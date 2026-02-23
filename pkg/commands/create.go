@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -282,6 +283,18 @@ func generateDevcontainerConfig(w io.Writer, deploymentName, baseConfigPath, fea
 	if err := os.MkdirAll(dcDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create devcontainer directory: %w", err)
 	}
+
+	// Write source deployment env vars to a .env file so the devcontainer
+	// gets them injected via --env-file.
+	if len(resp.EnvVars) > 0 {
+		envFilePath := filepath.Join(dcDir, "development.env")
+		if err := writeEnvFile(envFilePath, resp.EnvVars); err != nil {
+			return "", fmt.Errorf("failed to write env file: %w", err)
+		}
+		cfg.EnsureRunArgs("--env-file", envFilePath)
+		fmt.Fprintf(w, "\nEnvironment variables written to %s (%d vars)\n", envFilePath, len(resp.EnvVars))
+	}
+
 	if err := cfg.Save(dcConfigPath); err != nil {
 		return "", fmt.Errorf("failed to write devcontainer config: %w", err)
 	}
@@ -410,6 +423,27 @@ func hasMountTarget(cfg *devcontainer.Config, target string) bool {
 		}
 	}
 	return false
+}
+
+// writeEnvFile writes a map of environment variables to a .env file.
+// Keys are sorted for deterministic output.
+func writeEnvFile(path string, vars map[string]string) error {
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		v := vars[k]
+		// Quote values that contain spaces, quotes, or newlines.
+		if strings.ContainsAny(v, " \t\n\r\"'\\#") {
+			v = "\"" + strings.ReplaceAll(strings.ReplaceAll(v, "\\", "\\\\"), "\"", "\\\"") + "\""
+		}
+		fmt.Fprintf(&b, "%s=%s\n", k, v)
+	}
+	return os.WriteFile(path, []byte(b.String()), 0600)
 }
 
 // ensureGitignore adds a pattern to the .gitignore file in dir if not already present.

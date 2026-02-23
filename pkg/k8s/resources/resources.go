@@ -24,11 +24,6 @@ import (
 const (
 	// defaultProxyPort is used when no source deployment exists to infer a port from.
 	defaultProxyPort int32 = 3000
-
-	// copiedSecretName is the name of the consolidated Secret in the target namespace.
-	copiedSecretName = "bridge-copied-config"
-	// copiedConfigMapName is the name of the consolidated ConfigMap in the target namespace.
-	copiedConfigMapName = "bridge-copied-config"
 )
 
 // BridgeDeployName returns the bridge deployment name for a source deployment.
@@ -88,8 +83,9 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 		return nil, fmt.Errorf("failed to get source deployment %s/%s: %w", cfg.SourceNamespace, cfg.SourceDeployment, err)
 	}
 
-	// Extract and copy config dependencies
-	if err := copyConfigDependencies(ctx, client, srcDeploy, cfg.SourceNamespace, cfg.TargetNamespace); err != nil {
+	// Extract and copy config dependencies with prefixed names.
+	nameMap, err := copyConfigDependencies(ctx, client, srcDeploy, cfg.SourceNamespace, cfg.TargetNamespace)
+	if err != nil {
 		return nil, fmt.Errorf("failed to copy config dependencies: %w", err)
 	}
 
@@ -106,7 +102,7 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 	grpcPort := chooseGRPCPort(appPorts)
 
 	// Create the transformed deployment
-	deployName, err := createBridgedDeployment(ctx, client, srcDeploy, cfg.TargetNamespace, cfg.ProxyImage, grpcPort, appPorts)
+	deployName, err := createBridgedDeployment(ctx, client, srcDeploy, cfg.TargetNamespace, cfg.ProxyImage, grpcPort, appPorts, nameMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bridged deployment: %w", err)
 	}
@@ -150,20 +146,25 @@ func CreateSimpleDeployment(ctx context.Context, client kubernetes.Interface, na
 	}
 
 	replicas := int32(1)
+	name := randomBridgeName()
+	podLabels := map[string]string{
+		meta.LabelBridgeType:       meta.BridgeTypeProxy,
+		meta.LabelBridgeDeployment: name,
+	}
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      randomBridgeName(),
+			Name:      name,
 			Namespace: namespace,
 			Labels:    map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+				MatchLabels: podLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+					Labels: podLabels,
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -205,21 +206,44 @@ func CreateSimpleDeployment(ctx context.Context, client kubernetes.Interface, na
 	}, nil
 }
 
-// copyConfigDependencies extracts ConfigMap and Secret references from a Deployment's
-// pod spec and copies the referenced keys into consolidated resources in the target namespace.
-// configRef tracks a reference to a Secret or ConfigMap, either for a specific
-// key or for all keys (key == "").
+// configRef tracks a reference to a Secret or ConfigMap.
 type configRef struct {
 	name     string
-	key      string // empty means all keys
 	optional bool
 }
 
-func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, deploy *appsv1.Deployment, srcNS, targetNS string) error {
+// copyConfigDependencies extracts Secret and ConfigMap references from a
+// Deployment's pod spec, copies each resource to the target namespace with a
+// deployment-scoped prefix to avoid name collisions, and returns a name map
+// (original → prefixed) so callers can rewrite references on the pod spec.
+func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, deploy *appsv1.Deployment, srcNS, targetNS string) (nameMap map[string]string, err error) {
 	podSpec := &deploy.Spec.Template.Spec
+	prefix := deploy.Name + "-"
 
-	// Phase 1: Walk the pod spec and collect every Secret/ConfigMap reference.
-	var secretRefs, configMapRefs []configRef
+	// Collect every unique Secret/ConfigMap name referenced by the pod.
+	secretRefs := make(map[string]configRef)
+	configMapRefs := make(map[string]configRef)
+
+	addSecret := func(name string, optional bool) {
+		if existing, ok := secretRefs[name]; ok {
+			if !optional {
+				existing.optional = false
+				secretRefs[name] = existing
+			}
+		} else {
+			secretRefs[name] = configRef{name: name, optional: optional}
+		}
+	}
+	addConfigMap := func(name string, optional bool) {
+		if existing, ok := configMapRefs[name]; ok {
+			if !optional {
+				existing.optional = false
+				configMapRefs[name] = existing
+			}
+		} else {
+			configMapRefs[name] = configRef{name: name, optional: optional}
+		}
+	}
 
 	for _, container := range append(podSpec.Containers, podSpec.InitContainers...) {
 		for _, env := range container.Env {
@@ -227,228 +251,121 @@ func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, de
 				continue
 			}
 			if ref := env.ValueFrom.SecretKeyRef; ref != nil {
-				secretRefs = append(secretRefs, configRef{
-					name:     ref.Name,
-					key:      ref.Key,
-					optional: ref.Optional != nil && *ref.Optional,
-				})
+				addSecret(ref.Name, ref.Optional != nil && *ref.Optional)
 			}
 			if ref := env.ValueFrom.ConfigMapKeyRef; ref != nil {
-				configMapRefs = append(configMapRefs, configRef{
-					name:     ref.Name,
-					key:      ref.Key,
-					optional: ref.Optional != nil && *ref.Optional,
-				})
+				addConfigMap(ref.Name, ref.Optional != nil && *ref.Optional)
 			}
 		}
-
-		for _, envFrom := range container.EnvFrom {
-			if envFrom.SecretRef != nil {
-				secretRefs = append(secretRefs, configRef{
-					name:     envFrom.SecretRef.Name,
-					optional: envFrom.SecretRef.Optional != nil && *envFrom.SecretRef.Optional,
-				})
+		for _, ef := range container.EnvFrom {
+			if ef.SecretRef != nil {
+				addSecret(ef.SecretRef.Name, ef.SecretRef.Optional != nil && *ef.SecretRef.Optional)
 			}
-			if envFrom.ConfigMapRef != nil {
-				configMapRefs = append(configMapRefs, configRef{
-					name:     envFrom.ConfigMapRef.Name,
-					optional: envFrom.ConfigMapRef.Optional != nil && *envFrom.ConfigMapRef.Optional,
-				})
+			if ef.ConfigMapRef != nil {
+				addConfigMap(ef.ConfigMapRef.Name, ef.ConfigMapRef.Optional != nil && *ef.ConfigMapRef.Optional)
 			}
 		}
 	}
-
 	for _, vol := range podSpec.Volumes {
 		if vol.Secret != nil {
-			secretRefs = append(secretRefs, configRef{
-				name:     vol.Secret.SecretName,
-				optional: vol.Secret.Optional != nil && *vol.Secret.Optional,
-			})
+			addSecret(vol.Secret.SecretName, vol.Secret.Optional != nil && *vol.Secret.Optional)
 		}
 		if vol.ConfigMap != nil {
-			configMapRefs = append(configMapRefs, configRef{
-				name:     vol.ConfigMap.Name,
-				optional: vol.ConfigMap.Optional != nil && *vol.ConfigMap.Optional,
-			})
+			addConfigMap(vol.ConfigMap.Name, vol.ConfigMap.Optional != nil && *vol.ConfigMap.Optional)
 		}
 	}
 
-	// Phase 2: Fetch each unique Secret/ConfigMap once.
-	secrets, err := fetchSecrets(ctx, client, srcNS, secretRefs)
-	if err != nil {
-		return err
-	}
-	configMaps, err := fetchConfigMaps(ctx, client, srcNS, configMapRefs)
-	if err != nil {
-		return err
-	}
+	nameMap = make(map[string]string)
 
-	// Phase 3: Extract the needed keys into the consolidated data maps.
-	secretData := make(map[string][]byte)
+	// Copy each Secret to the target namespace with a prefixed name.
 	for _, ref := range secretRefs {
-		src, ok := secrets[ref.name]
-		if !ok {
-			continue // optional and missing — already handled in fetch
+		src, err := client.CoreV1().Secrets(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
+		if err != nil {
+			if ref.optional {
+				slog.Debug("Skipping optional secret", "name", ref.name, "namespace", srcNS)
+				continue
+			}
+			return nil, fmt.Errorf("failed to get secret %s/%s: %w", srcNS, ref.name, err)
 		}
-		if ref.key != "" {
-			if val, ok := src.Data[ref.key]; ok {
-				secretData[fmt.Sprintf("%s_%s", ref.name, ref.key)] = val
-			}
-		} else {
-			for k, v := range src.Data {
-				secretData[k] = v
-			}
+		dstName := prefix + ref.name
+		nameMap[ref.name] = dstName
+		dst := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: dstName, Namespace: targetNS},
+			Type:       src.Type,
+			Data:       src.Data,
+		}
+		if err := createOrUpdate(ctx, client, targetNS, dst); err != nil {
+			return nil, fmt.Errorf("failed to copy secret %s: %w", ref.name, err)
 		}
 	}
 
-	configData := make(map[string]string)
+	// Copy each ConfigMap to the target namespace with a prefixed name.
 	for _, ref := range configMapRefs {
-		src, ok := configMaps[ref.name]
-		if !ok {
-			continue
-		}
-		if ref.key != "" {
-			if val, ok := src.Data[ref.key]; ok {
-				configData[fmt.Sprintf("%s_%s", ref.name, ref.key)] = val
-			}
-		} else {
-			for k, v := range src.Data {
-				configData[k] = v
-			}
-		}
-	}
-
-	// Phase 4: Write the consolidated resources to the target namespace.
-	if len(secretData) > 0 {
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      copiedSecretName,
-				Namespace: targetNS,
-			},
-			Data: secretData,
-		}
-		if err := createOrUpdate(ctx, client, targetNS, secret); err != nil {
-			return fmt.Errorf("failed to create copied secret: %w", err)
-		}
-	}
-
-	if len(configData) > 0 {
-		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      copiedConfigMapName,
-				Namespace: targetNS,
-			},
-			Data: configData,
-		}
-		if err := createOrUpdateConfigMap(ctx, client, targetNS, cm); err != nil {
-			return fmt.Errorf("failed to create copied configmap: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// fetchSecrets fetches each unique Secret referenced by refs, returning a map
-// keyed by name. Optional refs that are not found are silently skipped.
-func fetchSecrets(ctx context.Context, client kubernetes.Interface, ns string, refs []configRef) (map[string]*corev1.Secret, error) {
-	result := make(map[string]*corev1.Secret)
-	optional := make(map[string]bool)
-
-	for _, ref := range refs {
-		if _, ok := result[ref.name]; ok {
-			continue
-		}
-		if ref.optional {
-			optional[ref.name] = true
-		}
-
-		secret, err := client.CoreV1().Secrets(ns).Get(ctx, ref.name, metav1.GetOptions{})
+		src, err := client.CoreV1().ConfigMaps(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
 		if err != nil {
-			if optional[ref.name] {
-				slog.Debug("Skipping optional secret", "name", ref.name, "namespace", ns)
+			if ref.optional {
+				slog.Debug("Skipping optional configmap", "name", ref.name, "namespace", srcNS)
 				continue
 			}
-			return nil, fmt.Errorf("failed to get secret %s/%s: %w", ns, ref.name, err)
+			return nil, fmt.Errorf("failed to get configmap %s/%s: %w", srcNS, ref.name, err)
 		}
-		result[ref.name] = secret
+		dstName := prefix + ref.name
+		nameMap[ref.name] = dstName
+		dst := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: dstName, Namespace: targetNS},
+			Data:       src.Data,
+		}
+		if err := createOrUpdateConfigMap(ctx, client, targetNS, dst); err != nil {
+			return nil, fmt.Errorf("failed to copy configmap %s: %w", ref.name, err)
+		}
 	}
-	return result, nil
-}
 
-// fetchConfigMaps fetches each unique ConfigMap referenced by refs, returning a
-// map keyed by name. Optional refs that are not found are silently skipped.
-func fetchConfigMaps(ctx context.Context, client kubernetes.Interface, ns string, refs []configRef) (map[string]*corev1.ConfigMap, error) {
-	result := make(map[string]*corev1.ConfigMap)
-	optional := make(map[string]bool)
-
-	for _, ref := range refs {
-		if _, ok := result[ref.name]; ok {
-			continue
-		}
-		if ref.optional {
-			optional[ref.name] = true
-		}
-
-		cm, err := client.CoreV1().ConfigMaps(ns).Get(ctx, ref.name, metav1.GetOptions{})
-		if err != nil {
-			if optional[ref.name] {
-				slog.Debug("Skipping optional configmap", "name", ref.name, "namespace", ns)
-				continue
-			}
-			return nil, fmt.Errorf("failed to get configmap %s/%s: %w", ns, ref.name, err)
-		}
-		result[ref.name] = cm
-	}
-	return result, nil
+	return nameMap, nil
 }
 
 // createBridgedDeployment creates a new Deployment in the target namespace with the
 // application container replaced by the bridge proxy.
-func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, src *appsv1.Deployment, targetNS, proxyImage string, grpcPort int32, listenPorts []int32) (string, error) {
+func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, src *appsv1.Deployment, targetNS, proxyImage string, grpcPort int32, listenPorts []int32, nameMap map[string]string) (string, error) {
 	replicas := int32(1)
 
-	// Build the transformed container list: replace the first container with bridge proxy,
-	// keep sidecars intact.
+	// Clone containers from the source, modifying only the first (primary app)
+	// container in-place: swap its image/command/ports for the bridge proxy
+	// while keeping everything else (env, envFrom, volumeMounts, resources, etc.).
 	containers := make([]corev1.Container, len(src.Spec.Template.Spec.Containers))
-	for i, c := range src.Spec.Template.Spec.Containers {
-		if i == 0 {
-			// Replace the primary app container with bridge proxy.
-			// The gRPC server and ingress listeners use separate ports so
-			// they don't collide.
-			args := []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
-			if len(listenPorts) > 0 {
-				var specs []string
-				for _, p := range listenPorts {
-					specs = append(specs, fmt.Sprintf("%d/tcp", p))
-				}
-				args = append(args, "--listen-ports", strings.Join(specs, ","))
-			}
+	copy(containers, src.Spec.Template.Spec.Containers)
 
-			ports := []corev1.ContainerPort{
-				{Name: "grpc", ContainerPort: grpcPort, Protocol: corev1.ProtocolTCP},
-			}
+	if len(containers) > 0 {
+		c := &containers[0]
+
+		args := []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
+		if len(listenPorts) > 0 {
+			var specs []string
 			for _, p := range listenPorts {
-				ports = append(ports, corev1.ContainerPort{ContainerPort: p, Protocol: corev1.ProtocolTCP})
+				specs = append(specs, fmt.Sprintf("%d/tcp", p))
 			}
-
-			containers[i] = corev1.Container{
-				Name:    c.Name,
-				Image:   proxyImage,
-				Command: args,
-				Ports:   ports,
-			}
-		} else {
-			// Keep sidecar containers as-is
-			containers[i] = c
+			args = append(args, "--listen-ports", strings.Join(specs, ","))
 		}
-	}
 
-	// Rewrite env references to use our consolidated config
-	for i := range containers {
-		rewriteEnvRefs(&containers[i])
+		c.Image = proxyImage
+		c.Command = args
+		c.Args = nil
+		c.Ports = []corev1.ContainerPort{
+			{Name: "grpc", ContainerPort: grpcPort, Protocol: corev1.ProtocolTCP},
+		}
+		for _, p := range listenPorts {
+			c.Ports = append(c.Ports, corev1.ContainerPort{ContainerPort: p, Protocol: corev1.ProtocolTCP})
+		}
+		// Clear probes — the bridge proxy doesn't implement the app's health checks.
+		c.LivenessProbe = nil
+		c.ReadinessProbe = nil
+		c.StartupProbe = nil
 	}
 
 	deployName := BridgeDeployName(src.Name)
+	podLabels := map[string]string{
+		meta.LabelBridgeType:       meta.BridgeTypeProxy,
+		meta.LabelBridgeDeployment: deployName,
+	}
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deployName,
@@ -462,20 +379,23 @@ func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, s
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+				MatchLabels: podLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+					Labels: podLabels,
 				},
 				Spec: corev1.PodSpec{
-					Containers: containers,
-					// Don't copy volumes — we've consolidated config into single resources
-					// and the bridge proxy doesn't need the original volume mounts.
+					Containers:     containers,
+					InitContainers: src.Spec.Template.Spec.InitContainers,
+					Volumes:        src.Spec.Template.Spec.Volumes,
 				},
 			},
 		},
 	}
+
+	// Rewrite all Secret/ConfigMap references to use the prefixed names.
+	rewriteConfigRefs(&deploy.Spec.Template.Spec, nameMap)
 
 	existing, err := client.AppsV1().Deployments(targetNS).Get(ctx, deploy.Name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
@@ -495,25 +415,50 @@ func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, s
 	return deploy.Name, nil
 }
 
-// rewriteEnvRefs rewrites Secret/ConfigMap env references to point to our consolidated resources.
-func rewriteEnvRefs(container *corev1.Container) {
-	for i := range container.Env {
-		if container.Env[i].ValueFrom == nil {
-			continue
+// rewriteConfigRefs rewrites all Secret/ConfigMap references in the pod spec
+// (env, envFrom, volumes) using the provided name map (original → prefixed).
+func rewriteConfigRefs(podSpec *corev1.PodSpec, nameMap map[string]string) {
+	rewrite := func(name string) string {
+		if mapped, ok := nameMap[name]; ok {
+			return mapped
 		}
-		if ref := container.Env[i].ValueFrom.SecretKeyRef; ref != nil {
-			ref.Name = copiedSecretName
+		return name
+	}
+
+	for i := range podSpec.Containers {
+		rewriteContainerRefs(&podSpec.Containers[i], rewrite)
+	}
+	for i := range podSpec.InitContainers {
+		rewriteContainerRefs(&podSpec.InitContainers[i], rewrite)
+	}
+	for i := range podSpec.Volumes {
+		if podSpec.Volumes[i].Secret != nil {
+			podSpec.Volumes[i].Secret.SecretName = rewrite(podSpec.Volumes[i].Secret.SecretName)
 		}
-		if ref := container.Env[i].ValueFrom.ConfigMapKeyRef; ref != nil {
-			ref.Name = copiedConfigMapName
+		if podSpec.Volumes[i].ConfigMap != nil {
+			podSpec.Volumes[i].ConfigMap.Name = rewrite(podSpec.Volumes[i].ConfigMap.Name)
 		}
 	}
-	for i := range container.EnvFrom {
-		if container.EnvFrom[i].SecretRef != nil {
-			container.EnvFrom[i].SecretRef.Name = copiedSecretName
+}
+
+func rewriteContainerRefs(c *corev1.Container, rewrite func(string) string) {
+	for i := range c.Env {
+		if c.Env[i].ValueFrom == nil {
+			continue
 		}
-		if container.EnvFrom[i].ConfigMapRef != nil {
-			container.EnvFrom[i].ConfigMapRef.Name = copiedConfigMapName
+		if ref := c.Env[i].ValueFrom.SecretKeyRef; ref != nil {
+			ref.Name = rewrite(ref.Name)
+		}
+		if ref := c.Env[i].ValueFrom.ConfigMapKeyRef; ref != nil {
+			ref.Name = rewrite(ref.Name)
+		}
+	}
+	for i := range c.EnvFrom {
+		if c.EnvFrom[i].SecretRef != nil {
+			c.EnvFrom[i].SecretRef.Name = rewrite(c.EnvFrom[i].SecretRef.Name)
+		}
+		if c.EnvFrom[i].ConfigMapRef != nil {
+			c.EnvFrom[i].ConfigMapRef.Name = rewrite(c.EnvFrom[i].ConfigMapRef.Name)
 		}
 	}
 }

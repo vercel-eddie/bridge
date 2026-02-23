@@ -12,6 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
@@ -193,9 +194,24 @@ func (s *administratorServer) CreateBridge(ctx context.Context, req *bridgev1.Cr
 	}
 
 	// Wait for the pod to be ready
-	podName, err := kube.WaitForPod(ctx, s.client, nsName, meta.ProxySelector, 2*time.Minute)
+	podName, err := kube.WaitForPod(ctx, s.client, nsName, meta.DeploymentSelector(result.DeploymentName), 2*time.Minute)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed waiting for pod: %v", err)
+	}
+
+	// Call GetMetadata on the running proxy pod to retrieve the environment
+	// variables that Kubernetes resolved from the source deployment's config.
+	var envVars map[string]string
+	pod, err := s.client.CoreV1().Pods(nsName).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		slog.Warn("Failed to get pod for GetMetadata", "pod", podName, "error", err)
+	} else if pod.Status.PodIP != "" {
+		proxyAddr := fmt.Sprintf("%s:%d", pod.Status.PodIP, result.PodPort)
+		if md, err := fetchProxyMetadata(ctx, proxyAddr); err != nil {
+			slog.Warn("GetMetadata call failed", "addr", proxyAddr, "error", err)
+		} else {
+			envVars = md
+		}
 	}
 
 	return &bridgev1.CreateBridgeResponse{
@@ -203,6 +219,7 @@ func (s *administratorServer) CreateBridge(ctx context.Context, req *bridgev1.Cr
 		PodName:        podName,
 		Port:           result.PodPort,
 		DeploymentName: result.DeploymentName,
+		EnvVars:        envVars,
 	}, nil
 }
 
@@ -257,6 +274,26 @@ func (s *administratorServer) DeleteBridge(ctx context.Context, req *bridgev1.De
 	}
 
 	return &bridgev1.DeleteBridgeResponse{}, nil
+}
+
+// fetchProxyMetadata dials the bridge proxy at the given address and calls
+// GetMetadata to retrieve the pod's environment variables.
+func fetchProxyMetadata(ctx context.Context, addr string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("dial proxy: %w", err)
+	}
+	defer conn.Close()
+
+	client := bridgev1.NewBridgeProxyServiceClient(conn)
+	resp, err := client.GetMetadata(ctx, &bridgev1.GetMetadataRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("GetMetadata: %w", err)
+	}
+	return resp.GetEnvVars(), nil
 }
 
 // findExistingBridge finds an existing bridge deployment in the namespace.

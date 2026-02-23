@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	BridgeProxyService_ResolveDNSQuery_FullMethodName = "/bridge.v1.BridgeProxyService/ResolveDNSQuery"
 	BridgeProxyService_TunnelNetwork_FullMethodName   = "/bridge.v1.BridgeProxyService/TunnelNetwork"
+	BridgeProxyService_GetMetadata_FullMethodName     = "/bridge.v1.BridgeProxyService/GetMetadata"
 )
 
 // BridgeProxyServiceClient is the client API for BridgeProxyService service.
@@ -42,6 +43,9 @@ type BridgeProxyServiceClient interface {
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
 	TunnelNetwork(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelNetworkMessage, TunnelNetworkMessage], error)
+	// GetMetadata returns metadata about the bridge proxy, including environment
+	// variables from the pod that can be forwarded to the devcontainer.
+	GetMetadata(ctx context.Context, in *GetMetadataRequest, opts ...grpc.CallOption) (*GetMetadataResponse, error)
 }
 
 type bridgeProxyServiceClient struct {
@@ -75,6 +79,16 @@ func (c *bridgeProxyServiceClient) TunnelNetwork(ctx context.Context, opts ...gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type BridgeProxyService_TunnelNetworkClient = grpc.BidiStreamingClient[TunnelNetworkMessage, TunnelNetworkMessage]
 
+func (c *bridgeProxyServiceClient) GetMetadata(ctx context.Context, in *GetMetadataRequest, opts ...grpc.CallOption) (*GetMetadataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMetadataResponse)
+	err := c.cc.Invoke(ctx, BridgeProxyService_GetMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BridgeProxyServiceServer is the server API for BridgeProxyService service.
 // All implementations must embed UnimplementedBridgeProxyServiceServer
 // for forward compatibility.
@@ -94,6 +108,9 @@ type BridgeProxyServiceServer interface {
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
 	TunnelNetwork(grpc.BidiStreamingServer[TunnelNetworkMessage, TunnelNetworkMessage]) error
+	// GetMetadata returns metadata about the bridge proxy, including environment
+	// variables from the pod that can be forwarded to the devcontainer.
+	GetMetadata(context.Context, *GetMetadataRequest) (*GetMetadataResponse, error)
 	mustEmbedUnimplementedBridgeProxyServiceServer()
 }
 
@@ -109,6 +126,9 @@ func (UnimplementedBridgeProxyServiceServer) ResolveDNSQuery(context.Context, *P
 }
 func (UnimplementedBridgeProxyServiceServer) TunnelNetwork(grpc.BidiStreamingServer[TunnelNetworkMessage, TunnelNetworkMessage]) error {
 	return status.Error(codes.Unimplemented, "method TunnelNetwork not implemented")
+}
+func (UnimplementedBridgeProxyServiceServer) GetMetadata(context.Context, *GetMetadataRequest) (*GetMetadataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMetadata not implemented")
 }
 func (UnimplementedBridgeProxyServiceServer) mustEmbedUnimplementedBridgeProxyServiceServer() {}
 func (UnimplementedBridgeProxyServiceServer) testEmbeddedByValue()                            {}
@@ -156,6 +176,24 @@ func _BridgeProxyService_TunnelNetwork_Handler(srv interface{}, stream grpc.Serv
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type BridgeProxyService_TunnelNetworkServer = grpc.BidiStreamingServer[TunnelNetworkMessage, TunnelNetworkMessage]
 
+func _BridgeProxyService_GetMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BridgeProxyServiceServer).GetMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BridgeProxyService_GetMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BridgeProxyServiceServer).GetMetadata(ctx, req.(*GetMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BridgeProxyService_ServiceDesc is the grpc.ServiceDesc for BridgeProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -166,6 +204,10 @@ var BridgeProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveDNSQuery",
 			Handler:    _BridgeProxyService_ResolveDNSQuery_Handler,
+		},
+		{
+			MethodName: "GetMetadata",
+			Handler:    _BridgeProxyService_GetMetadata_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

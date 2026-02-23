@@ -45,6 +45,9 @@ message CreateBridgeResponse {
 
   // The name of the Deployment that owns the bridged pod.
   string deployment_name = 4 [json_name = "deployment_name"];
+
+  // Environment variables resolved from the source deployment's pod spec.
+  map<string, string> env_vars = 5;
 }
 
 // ListBridgesRequest is sent to query active bridges.

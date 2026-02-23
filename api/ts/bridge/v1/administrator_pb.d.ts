@@ -86,6 +86,13 @@ export declare type CreateBridgeResponse = Message<"bridge.v1.CreateBridgeRespon
    * @generated from field: string deployment_name = 4 [json_name = "deployment_name"];
    */
   deploymentName: string;
+
+  /**
+   * Environment variables resolved from the source deployment's pod spec.
+   *
+   * @generated from field: map<string, string> env_vars = 5;
+   */
+  envVars: { [key: string]: string };
 };
 
 /**

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,6 +110,50 @@ func (s *GRPCServer) ResolveDNSQuery(ctx context.Context, req *bridgev1.ProxyRes
 	return &bridgev1.ProxyResolveDNSResponse{
 		Addresses: ipv4,
 	}, nil
+}
+
+// systemEnvPrefixes lists env var prefixes that are filtered out of GetMetadata
+// responses because they are injected by the container runtime, not the app config.
+var systemEnvPrefixes = []string{"BRIDGE_", "KUBERNETES_"}
+
+// systemEnvVars lists exact env var names filtered out of GetMetadata responses.
+var systemEnvVars = map[string]bool{
+	"PATH": true, "HOME": true, "HOSTNAME": true, "TERM": true,
+	"SHELL": true, "USER": true, "PWD": true, "SHLVL": true,
+	"LANG": true, "GODEBUG": true,
+}
+
+// isSystemEnvVar returns true if the key is a system/runtime env var that
+// should not be forwarded to the devcontainer.
+func isSystemEnvVar(key string) bool {
+	if systemEnvVars[key] {
+		return true
+	}
+	for _, prefix := range systemEnvPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	// Kubernetes injects service discovery vars like:
+	//   MYSERVICE_SERVICE_HOST, MYSERVICE_SERVICE_PORT, MYSERVICE_SERVICE_PORT_HTTP,
+	//   MYSERVICE_PORT, MYSERVICE_PORT_80_TCP, MYSERVICE_PORT_80_TCP_ADDR, etc.
+	if strings.Contains(key, "_SERVICE_HOST") || strings.Contains(key, "_SERVICE_PORT") || strings.Contains(key, "_PORT_") {
+		return true
+	}
+	return false
+}
+
+// GetMetadata returns metadata about the bridge proxy, including environment
+// variables that were set on the pod by the administrator.
+func (s *GRPCServer) GetMetadata(_ context.Context, _ *bridgev1.GetMetadataRequest) (*bridgev1.GetMetadataResponse, error) {
+	envVars := make(map[string]string)
+	for _, e := range os.Environ() {
+		k, v, _ := strings.Cut(e, "=")
+		if !isSystemEnvVar(k) {
+			envVars[k] = v
+		}
+	}
+	return &bridgev1.GetMetadataResponse{EnvVars: envVars}, nil
 }
 
 // TunnelNetwork handles the single bidirectional tunnel stream. All egress and

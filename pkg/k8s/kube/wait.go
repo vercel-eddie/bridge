@@ -51,9 +51,22 @@ var reasonHints = map[string]string{
 	ReasonStartError:                 "the container failed during startup",
 }
 
+// terminalReasons are container waiting/terminated reasons that indicate the
+// pod will never become ready without intervention.
+var terminalReasons = map[string]bool{
+	ReasonCrashLoopBackOff:           true,
+	ReasonImagePullBackOff:           true,
+	ReasonErrImagePull:               true,
+	ReasonCreateContainerConfigError: true,
+	ReasonInvalidImageName:           true,
+	ReasonRunContainerError:          true,
+}
+
 // WaitForPod polls until a pod matching the label selector in the given
-// namespace is running with all containers ready. On timeout it returns
-// the best error it can glean from container statuses.
+// namespace is running with all containers ready. It returns early with an
+// error if a terminal failure is detected (e.g., CrashLoopBackOff,
+// ImagePullBackOff, CreateContainerConfigError). On timeout it returns the
+// best error it can glean from container statuses.
 func WaitForPod(ctx context.Context, client kubernetes.Interface, ns, labelSelector string, timeout time.Duration) (string, error) {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(2 * time.Second)
@@ -83,12 +96,29 @@ func WaitForPod(ctx context.Context, client kubernetes.Interface, ns, labelSelec
 				if podReady(&pod) {
 					return pod.Name, nil
 				}
+				if reason := podTerminalReason(&pod); reason != "" {
+					return "", fmt.Errorf("pod %s in %s has terminal failure: %s", pod.Name, ns, podError(&pod))
+				}
 				if errMsg := podError(&pod); errMsg != "" {
 					lastPodStatus = errMsg
 				}
 			}
 		}
 	}
+}
+
+// podTerminalReason returns the first terminal failure reason found on a pod,
+// or empty string if the pod might still recover.
+func podTerminalReason(pod *corev1.Pod) string {
+	for _, cs := range append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...) {
+		if cs.State.Waiting != nil && terminalReasons[cs.State.Waiting.Reason] {
+			return cs.State.Waiting.Reason
+		}
+		if cs.State.Terminated != nil && terminalReasons[cs.State.Terminated.Reason] {
+			return cs.State.Terminated.Reason
+		}
+	}
+	return ""
 }
 
 // podReady returns true if all containers in the pod are ready and it is

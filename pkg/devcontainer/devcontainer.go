@@ -159,6 +159,11 @@ func (c *Config) EnsureContainerEnv(k, v string) {
 	c.ContainerEnv[k] = v
 }
 
+// EnsureRunArgs appends additional docker run arguments.
+func (c *Config) EnsureRunArgs(args ...string) {
+	c.RunArgs = append(c.RunArgs, args...)
+}
+
 // EnsureCapAdd idempotently adds capabilities to capAdd.
 func (c *Config) EnsureCapAdd(caps ...string) {
 	existing := make(map[string]bool, len(c.CapAdd))

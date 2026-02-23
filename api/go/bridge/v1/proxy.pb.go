@@ -218,6 +218,86 @@ func (x *TunnelAddress) GetPort() int32 {
 	return 0
 }
 
+type GetMetadataRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMetadataRequest) Reset() {
+	*x = GetMetadataRequest{}
+	mi := &file_bridge_v1_proxy_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMetadataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMetadataRequest) ProtoMessage() {}
+
+func (x *GetMetadataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_proxy_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMetadataRequest.ProtoReflect.Descriptor instead.
+func (*GetMetadataRequest) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_proxy_proto_rawDescGZIP(), []int{3}
+}
+
+type GetMetadataResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EnvVars       map[string]string      `protobuf:"bytes,1,rep,name=env_vars,json=envVars,proto3" json:"env_vars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMetadataResponse) Reset() {
+	*x = GetMetadataResponse{}
+	mi := &file_bridge_v1_proxy_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMetadataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMetadataResponse) ProtoMessage() {}
+
+func (x *GetMetadataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_proxy_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMetadataResponse.ProtoReflect.Descriptor instead.
+func (*GetMetadataResponse) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_proxy_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetMetadataResponse) GetEnvVars() map[string]string {
+	if x != nil {
+		return x.EnvVars
+	}
+	return nil
+}
+
 type TunnelNetworkMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The address that is sending the message.
@@ -238,7 +318,7 @@ type TunnelNetworkMessage struct {
 
 func (x *TunnelNetworkMessage) Reset() {
 	*x = TunnelNetworkMessage{}
-	mi := &file_bridge_v1_proxy_proto_msgTypes[3]
+	mi := &file_bridge_v1_proxy_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -250,7 +330,7 @@ func (x *TunnelNetworkMessage) String() string {
 func (*TunnelNetworkMessage) ProtoMessage() {}
 
 func (x *TunnelNetworkMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_v1_proxy_proto_msgTypes[3]
+	mi := &file_bridge_v1_proxy_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -263,7 +343,7 @@ func (x *TunnelNetworkMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TunnelNetworkMessage.ProtoReflect.Descriptor instead.
 func (*TunnelNetworkMessage) Descriptor() ([]byte, []int) {
-	return file_bridge_v1_proxy_proto_rawDescGZIP(), []int{3}
+	return file_bridge_v1_proxy_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TunnelNetworkMessage) GetSource() *TunnelAddress {
@@ -320,7 +400,13 @@ const file_bridge_v1_proxy_proto_rawDesc = "" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"3\n" +
 	"\rTunnelAddress\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\xfd\x01\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\x14\n" +
+	"\x12GetMetadataRequest\"\x99\x01\n" +
+	"\x13GetMetadataResponse\x12F\n" +
+	"\benv_vars\x18\x01 \x03(\v2+.bridge.v1.GetMetadataResponse.EnvVarsEntryR\aenvVars\x1a:\n" +
+	"\fEnvVarsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfd\x01\n" +
 	"\x14TunnelNetworkMessage\x120\n" +
 	"\x06source\x18\x01 \x01(\v2\x18.bridge.v1.TunnelAddressR\x06source\x12,\n" +
 	"\x04dest\x18\x02 \x01(\v2\x18.bridge.v1.TunnelAddressR\x04dest\x12$\n" +
@@ -331,10 +417,11 @@ const file_bridge_v1_proxy_proto_rawDesc = "" +
 	"\x0eTunnelProtocol\x12\x1f\n" +
 	"\x1bTUNNEL_PROTOCOL_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13TUNNEL_PROTOCOL_TCP\x10\x01\x12\x17\n" +
-	"\x13TUNNEL_PROTOCOL_UDP\x10\x022\xc5\x01\n" +
+	"\x13TUNNEL_PROTOCOL_UDP\x10\x022\x93\x02\n" +
 	"\x12BridgeProxyService\x12X\n" +
 	"\x0fResolveDNSQuery\x12!.bridge.v1.ProxyResolveDNSRequest\x1a\".bridge.v1.ProxyResolveDNSResponse\x12U\n" +
-	"\rTunnelNetwork\x12\x1f.bridge.v1.TunnelNetworkMessage\x1a\x1f.bridge.v1.TunnelNetworkMessage(\x010\x01B\x94\x01\n" +
+	"\rTunnelNetwork\x12\x1f.bridge.v1.TunnelNetworkMessage\x1a\x1f.bridge.v1.TunnelNetworkMessage(\x010\x01\x12L\n" +
+	"\vGetMetadata\x12\x1d.bridge.v1.GetMetadataRequest\x1a\x1e.bridge.v1.GetMetadataResponseB\x94\x01\n" +
 	"\rcom.bridge.v1B\n" +
 	"ProxyProtoP\x01Z2github.com/vercel/bridge/api/go/bridge/v1;bridgev1\xa2\x02\x03BXX\xaa\x02\tBridge.V1\xca\x02\tBridge\\V1\xe2\x02\x15Bridge\\V1\\GPBMetadata\xea\x02\n" +
 	"Bridge::V1b\x06proto3"
@@ -352,27 +439,33 @@ func file_bridge_v1_proxy_proto_rawDescGZIP() []byte {
 }
 
 var file_bridge_v1_proxy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bridge_v1_proxy_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_bridge_v1_proxy_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_bridge_v1_proxy_proto_goTypes = []any{
 	(TunnelProtocol)(0),             // 0: bridge.v1.TunnelProtocol
 	(*ProxyResolveDNSRequest)(nil),  // 1: bridge.v1.ProxyResolveDNSRequest
 	(*ProxyResolveDNSResponse)(nil), // 2: bridge.v1.ProxyResolveDNSResponse
 	(*TunnelAddress)(nil),           // 3: bridge.v1.TunnelAddress
-	(*TunnelNetworkMessage)(nil),    // 4: bridge.v1.TunnelNetworkMessage
+	(*GetMetadataRequest)(nil),      // 4: bridge.v1.GetMetadataRequest
+	(*GetMetadataResponse)(nil),     // 5: bridge.v1.GetMetadataResponse
+	(*TunnelNetworkMessage)(nil),    // 6: bridge.v1.TunnelNetworkMessage
+	nil,                             // 7: bridge.v1.GetMetadataResponse.EnvVarsEntry
 }
 var file_bridge_v1_proxy_proto_depIdxs = []int32{
-	3, // 0: bridge.v1.TunnelNetworkMessage.source:type_name -> bridge.v1.TunnelAddress
-	3, // 1: bridge.v1.TunnelNetworkMessage.dest:type_name -> bridge.v1.TunnelAddress
-	0, // 2: bridge.v1.TunnelNetworkMessage.protocol:type_name -> bridge.v1.TunnelProtocol
-	1, // 3: bridge.v1.BridgeProxyService.ResolveDNSQuery:input_type -> bridge.v1.ProxyResolveDNSRequest
-	4, // 4: bridge.v1.BridgeProxyService.TunnelNetwork:input_type -> bridge.v1.TunnelNetworkMessage
-	2, // 5: bridge.v1.BridgeProxyService.ResolveDNSQuery:output_type -> bridge.v1.ProxyResolveDNSResponse
-	4, // 6: bridge.v1.BridgeProxyService.TunnelNetwork:output_type -> bridge.v1.TunnelNetworkMessage
-	5, // [5:7] is the sub-list for method output_type
-	3, // [3:5] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	7, // 0: bridge.v1.GetMetadataResponse.env_vars:type_name -> bridge.v1.GetMetadataResponse.EnvVarsEntry
+	3, // 1: bridge.v1.TunnelNetworkMessage.source:type_name -> bridge.v1.TunnelAddress
+	3, // 2: bridge.v1.TunnelNetworkMessage.dest:type_name -> bridge.v1.TunnelAddress
+	0, // 3: bridge.v1.TunnelNetworkMessage.protocol:type_name -> bridge.v1.TunnelProtocol
+	1, // 4: bridge.v1.BridgeProxyService.ResolveDNSQuery:input_type -> bridge.v1.ProxyResolveDNSRequest
+	6, // 5: bridge.v1.BridgeProxyService.TunnelNetwork:input_type -> bridge.v1.TunnelNetworkMessage
+	4, // 6: bridge.v1.BridgeProxyService.GetMetadata:input_type -> bridge.v1.GetMetadataRequest
+	2, // 7: bridge.v1.BridgeProxyService.ResolveDNSQuery:output_type -> bridge.v1.ProxyResolveDNSResponse
+	6, // 8: bridge.v1.BridgeProxyService.TunnelNetwork:output_type -> bridge.v1.TunnelNetworkMessage
+	5, // 9: bridge.v1.BridgeProxyService.GetMetadata:output_type -> bridge.v1.GetMetadataResponse
+	7, // [7:10] is the sub-list for method output_type
+	4, // [4:7] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_bridge_v1_proxy_proto_init() }
@@ -386,7 +479,7 @@ func file_bridge_v1_proxy_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bridge_v1_proxy_proto_rawDesc), len(file_bridge_v1_proxy_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

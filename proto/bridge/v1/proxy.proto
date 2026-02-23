@@ -18,6 +18,10 @@ service BridgeProxyService {
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
   // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
   rpc TunnelNetwork(stream TunnelNetworkMessage) returns (stream TunnelNetworkMessage);
+
+  // GetMetadata returns metadata about the bridge proxy, including environment
+  // variables from the pod that can be forwarded to the devcontainer.
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
 }
 
 message ProxyResolveDNSRequest {
@@ -38,6 +42,12 @@ enum TunnelProtocol {
 message TunnelAddress {
   string ip = 1;
   int32 port = 2;
+}
+
+message GetMetadataRequest {}
+
+message GetMetadataResponse {
+  map<string, string> env_vars = 1;
 }
 
 message TunnelNetworkMessage {

@@ -69,6 +69,34 @@ export declare type TunnelAddress = Message<"bridge.v1.TunnelAddress"> & {
 export declare const TunnelAddressSchema: GenMessage<TunnelAddress>;
 
 /**
+ * @generated from message bridge.v1.GetMetadataRequest
+ */
+export declare type GetMetadataRequest = Message<"bridge.v1.GetMetadataRequest"> & {
+};
+
+/**
+ * Describes the message bridge.v1.GetMetadataRequest.
+ * Use `create(GetMetadataRequestSchema)` to create a new message.
+ */
+export declare const GetMetadataRequestSchema: GenMessage<GetMetadataRequest>;
+
+/**
+ * @generated from message bridge.v1.GetMetadataResponse
+ */
+export declare type GetMetadataResponse = Message<"bridge.v1.GetMetadataResponse"> & {
+  /**
+   * @generated from field: map<string, string> env_vars = 1;
+   */
+  envVars: { [key: string]: string };
+};
+
+/**
+ * Describes the message bridge.v1.GetMetadataResponse.
+ * Use `create(GetMetadataResponseSchema)` to create a new message.
+ */
+export declare const GetMetadataResponseSchema: GenMessage<GetMetadataResponse>;
+
+/**
  * @generated from message bridge.v1.TunnelNetworkMessage
  */
 export declare type TunnelNetworkMessage = Message<"bridge.v1.TunnelNetworkMessage"> & {
@@ -180,6 +208,17 @@ export declare const BridgeProxyService: GenService<{
     methodKind: "bidi_streaming";
     input: typeof TunnelNetworkMessageSchema;
     output: typeof TunnelNetworkMessageSchema;
+  },
+  /**
+   * GetMetadata returns metadata about the bridge proxy, including environment
+   * variables from the pod that can be forwarded to the devcontainer.
+   *
+   * @generated from rpc bridge.v1.BridgeProxyService.GetMetadata
+   */
+  getMetadata: {
+    methodKind: "unary";
+    input: typeof GetMetadataRequestSchema;
+    output: typeof GetMetadataResponseSchema;
   },
 }>;
 
