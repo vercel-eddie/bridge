@@ -334,9 +334,9 @@ const file_bridge_v1_proxy_proto_rawDesc = "" +
 	"\x13TUNNEL_PROTOCOL_UDP\x10\x022\xc5\x01\n" +
 	"\x12BridgeProxyService\x12X\n" +
 	"\x0fResolveDNSQuery\x12!.bridge.v1.ProxyResolveDNSRequest\x1a\".bridge.v1.ProxyResolveDNSResponse\x12U\n" +
-	"\rTunnelNetwork\x12\x1f.bridge.v1.TunnelNetworkMessage\x1a\x1f.bridge.v1.TunnelNetworkMessage(\x010\x01B\x9a\x01\n" +
+	"\rTunnelNetwork\x12\x1f.bridge.v1.TunnelNetworkMessage\x1a\x1f.bridge.v1.TunnelNetworkMessage(\x010\x01B\x94\x01\n" +
 	"\rcom.bridge.v1B\n" +
-	"ProxyProtoP\x01Z8github.com/vercel-eddie/bridge/api/go/bridge/v1;bridgev1\xa2\x02\x03BXX\xaa\x02\tBridge.V1\xca\x02\tBridge\\V1\xe2\x02\x15Bridge\\V1\\GPBMetadata\xea\x02\n" +
+	"ProxyProtoP\x01Z2github.com/vercel/bridge/api/go/bridge/v1;bridgev1\xa2\x02\x03BXX\xaa\x02\tBridge.V1\xca\x02\tBridge\\V1\xe2\x02\x15Bridge\\V1\\GPBMetadata\xea\x02\n" +
 	"Bridge::V1b\x06proto3"
 
 var (

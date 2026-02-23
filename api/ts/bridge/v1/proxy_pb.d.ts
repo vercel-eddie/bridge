@@ -155,6 +155,8 @@ export declare const TunnelProtocolSchema: GenEnum<TunnelProtocol>;
 export declare const BridgeProxyService: GenService<{
   /**
    * ResolveDNSQuery resolves a hostname using the in-cluster DNS (CoreDNS).
+   * buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+   * buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
    *
    * @generated from rpc bridge.v1.BridgeProxyService.ResolveDNSQuery
    */
@@ -168,6 +170,9 @@ export declare const BridgeProxyService: GenService<{
    * bidirectional stream. Every message carries source/dest addresses and a
    * connection ID so both sides share the same addressing semantics as the
    * WebSocket Message in bridge.proto.
+   * buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+   * buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+   * buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
    *
    * @generated from rpc bridge.v1.BridgeProxyService.TunnelNetwork
    */

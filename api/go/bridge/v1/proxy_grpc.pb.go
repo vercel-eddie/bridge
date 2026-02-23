@@ -31,11 +31,16 @@ const (
 // tunneling to the local bridge intercept client over gRPC.
 type BridgeProxyServiceClient interface {
 	// ResolveDNSQuery resolves a hostname using the in-cluster DNS (CoreDNS).
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	ResolveDNSQuery(ctx context.Context, in *ProxyResolveDNSRequest, opts ...grpc.CallOption) (*ProxyResolveDNSResponse, error)
 	// TunnelNetwork tunnels TCP/UDP traffic to an upstream service over a
 	// bidirectional stream. Every message carries source/dest addresses and a
 	// connection ID so both sides share the same addressing semantics as the
 	// WebSocket Message in bridge.proto.
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
 	TunnelNetwork(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelNetworkMessage, TunnelNetworkMessage], error)
 }
 
@@ -78,11 +83,16 @@ type BridgeProxyService_TunnelNetworkClient = grpc.BidiStreamingClient[TunnelNet
 // tunneling to the local bridge intercept client over gRPC.
 type BridgeProxyServiceServer interface {
 	// ResolveDNSQuery resolves a hostname using the in-cluster DNS (CoreDNS).
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	ResolveDNSQuery(context.Context, *ProxyResolveDNSRequest) (*ProxyResolveDNSResponse, error)
 	// TunnelNetwork tunnels TCP/UDP traffic to an upstream service over a
 	// bidirectional stream. Every message carries source/dest addresses and a
 	// connection ID so both sides share the same addressing semantics as the
 	// WebSocket Message in bridge.proto.
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
 	TunnelNetwork(grpc.BidiStreamingServer[TunnelNetworkMessage, TunnelNetworkMessage]) error
 	mustEmbedUnimplementedBridgeProxyServiceServer()
 }
