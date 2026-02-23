@@ -7,9 +7,9 @@ import (
 	"net"
 	"os/exec"
 
-	"github.com/vercel-eddie/bridge/pkg/bidi"
 	"github.com/vercel-eddie/bridge/pkg/conntrack"
-	"github.com/vercel-eddie/bridge/pkg/tunnel"
+	"github.com/vercel-eddie/bridge/pkg/netutil"
+	"github.com/vercel-eddie/bridge/pkg/plumbing"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 
 // ProxyComponent manages the transparent proxy listener, tunnel client, and iptables rules.
 type ProxyComponent struct {
-	tunnel   *tunnel.Client
+	tunnel   plumbing.Tunnel
 	listener net.Listener
 	port     int
 	registry *conntrack.Registry
@@ -27,9 +27,9 @@ type ProxyComponent struct {
 
 // ProxyConfig holds configuration for starting the proxy component.
 type ProxyConfig struct {
-	TunnelClient *tunnel.Client
-	ProxyPort    int // 0 = random
-	Registry     *conntrack.Registry
+	Tunnel    plumbing.Tunnel
+	ProxyPort int // 0 = random
+	Registry  *conntrack.Registry
 }
 
 // StartProxy creates a transparent proxy listener and initializes the tunnel client.
@@ -42,7 +42,7 @@ func StartProxy(cfg ProxyConfig) (*ProxyComponent, error) {
 	addr := listener.Addr().(*net.TCPAddr)
 
 	p := &ProxyComponent{
-		tunnel:   cfg.TunnelClient,
+		tunnel:   cfg.Tunnel,
 		listener: listener,
 		port:     addr.Port,
 		registry: cfg.Registry,
@@ -89,8 +89,8 @@ func (p *ProxyComponent) SetupIptables() error {
 	return nil
 }
 
-// Run starts the transparent proxy accept loop in a goroutine, then blocks
-// on tunnel.ConnectWithReconnect until the context is cancelled.
+// Run starts the transparent proxy accept loop and blocks until the context
+// is cancelled.
 func (p *ProxyComponent) Run(ctx context.Context) {
 	slog.Info("Transparent proxy listening", "port", p.port)
 
@@ -101,11 +101,11 @@ func (p *ProxyComponent) Run(ctx context.Context) {
 				slog.Error("Accept error", "error", err)
 				return
 			}
-			go p.handleOutbound(conn)
+			p.handleOutbound(conn)
 		}
 	}()
 
-	p.tunnel.ConnectWithReconnect(ctx)
+	<-ctx.Done()
 }
 
 // Stop cleans up iptables rules and closes the listener.
@@ -118,18 +118,16 @@ func (p *ProxyComponent) Stop() {
 }
 
 func (p *ProxyComponent) handleOutbound(clientConn net.Conn) {
-	defer clientConn.Close()
-
-	sourceAddr := clientConn.RemoteAddr().String()
-
-	origDst, err := getOriginalDst(clientConn)
+	origDst, err := netutil.OriginalDest(clientConn)
 	if err != nil {
 		slog.Error("Failed to get original destination", "error", err)
+		clientConn.Close()
 		return
 	}
 
 	// If we have a registry, resolve the proxy IP back to the real IP
 	destination := origDst
+	hostname := ""
 	if p.registry != nil {
 		host, port, err := net.SplitHostPort(origDst)
 		if err == nil {
@@ -137,29 +135,21 @@ func (p *ProxyComponent) handleOutbound(clientConn net.Conn) {
 			if proxyIP != nil {
 				if entry := p.registry.LookupAndMark(proxyIP); entry != nil {
 					destination = net.JoinHostPort(entry.ResolvedIP.String(), port)
-					defer p.registry.Release(proxyIP)
-					slog.Debug("Resolved proxy IP to real IP",
-						"proxy_ip", host,
-						"hostname", entry.Hostname,
-						"real_ip", entry.ResolvedIP,
-					)
+					hostname = entry.Hostname
 				}
 			}
 		}
 	}
 
-	slog.Debug("Intercepted outbound connection", "source", sourceAddr, "destination", destination)
+	slog.Info("Intercepted outbound connection",
+		"source", clientConn.RemoteAddr(),
+		"orig_dst", origDst,
+		"destination", destination,
+		"hostname", hostname,
+	)
 
-	targetConn, err := p.tunnel.DialThroughTunnel(sourceAddr, destination)
-	if err != nil {
-		slog.Error("Failed to dial through tunnel", "source", sourceAddr, "destination", destination, "error", err)
-		return
-	}
-	defer targetConn.Close()
-
-	slog.Info("Proxying connection", "source", sourceAddr, "destination", destination)
-
-	bidi.New(clientConn, targetConn).Wait(context.Background())
+	// Hand the connection to the tunnel; it owns the conn from here.
+	p.tunnel.AddConn(clientConn, destination)
 }
 
 func (p *ProxyComponent) cleanupIptables() {

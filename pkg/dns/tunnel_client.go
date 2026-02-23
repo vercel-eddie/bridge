@@ -12,6 +12,11 @@ import (
 	"github.com/vercel-eddie/bridge/pkg/tunnel"
 )
 
+// tunnelDNSResolver is the subset of tunnel.TunnelDialer needed by TunnelExchangeClient.
+type tunnelDNSResolver interface {
+	ResolveDNS(ctx context.Context, hostname string) (*tunnel.DNSResolveResult, error)
+}
+
 const defaultTunnelDNSTimeout = 5 * time.Second
 
 var _ ExchangeClient = (*TunnelExchangeClient)(nil)
@@ -20,14 +25,14 @@ var _ ExchangeClient = (*TunnelExchangeClient)(nil)
 // through the tunnel, and delegates everything else to a SystemExchangeClient.
 type TunnelExchangeClient struct {
 	patterns []string
-	tunnel   *tunnel.Client
+	tunnel   tunnelDNSResolver
 	fallback ExchangeClient
 }
 
 // NewTunnelExchangeClient creates a TunnelExchangeClient.
 // Patterns are lowered and trimmed. If upstream is empty, the system resolver
 // from /etc/resolv.conf is used for fallback queries.
-func NewTunnelExchangeClient(patterns []string, tunnelClient *tunnel.Client, upstream string) *TunnelExchangeClient {
+func NewTunnelExchangeClient(patterns []string, tunnelClient tunnelDNSResolver, upstream string) *TunnelExchangeClient {
 	normalized := make([]string, 0, len(patterns))
 	for _, p := range patterns {
 		normalized = append(normalized, strings.ToLower(strings.TrimSpace(p)))
@@ -78,8 +83,8 @@ func (c *TunnelExchangeClient) ExchangeContext(ctx context.Context, msg *dns.Msg
 		return nil, false, fmt.Errorf("tunnel DNS resolution for %s: %w", name, err)
 	}
 
-	if resp.GetError() != "" {
-		return nil, false, fmt.Errorf("tunnel DNS error for %s: %s", name, resp.GetError())
+	if resp.Error != "" {
+		return nil, false, fmt.Errorf("tunnel DNS error for %s: %s", name, resp.Error)
 	}
 
 	// Build a dns.Msg from the tunnel response
@@ -87,7 +92,7 @@ func (c *TunnelExchangeClient) ExchangeContext(ctx context.Context, msg *dns.Msg
 	reply.SetReply(msg)
 	reply.Authoritative = false
 
-	for _, addr := range resp.GetAddresses() {
+	for _, addr := range resp.Addresses {
 		ip := net.ParseIP(addr)
 		if ip == nil || ip.To4() == nil {
 			continue

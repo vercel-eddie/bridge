@@ -10,6 +10,10 @@ plugins:
     out: api/go
     opt:
       - paths=source_relative
+  - remote: buf.build/grpc/go
+    out: api/go
+    opt:
+      - paths=source_relative
   # TypeScript plugins
   - remote: buf.build/bufbuild/es
     out: api/ts

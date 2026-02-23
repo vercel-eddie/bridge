@@ -4,69 +4,39 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+	bridgev1 "github.com/vercel-eddie/bridge/api/go/bridge/v1"
 	"github.com/vercel-eddie/bridge/pkg/conntrack"
 	bridgedns "github.com/vercel-eddie/bridge/pkg/dns"
 	"github.com/vercel-eddie/bridge/pkg/ippool"
+	"github.com/vercel-eddie/bridge/pkg/k8s/k8spf"
+	"github.com/vercel-eddie/bridge/pkg/plumbing"
 	"github.com/vercel-eddie/bridge/pkg/tunnel"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func Intercept() *cli.Command {
 	return &cli.Command{
-		Name:  "intercept",
-		Usage: "Intercept and tunnel traffic (run inside Devcontainer)",
+		Name:   "intercept",
+		Usage:  "Intercept and tunnel traffic (run inside Devcontainer)",
+		Hidden: true,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "sandbox-url",
-				Usage:    "URL of the bridge server in the sandbox",
-				Sources:  cli.EnvVars("SANDBOX_URL"),
+				Name:     "server-addr",
+				Usage:    "Address of the bridge proxy server (e.g. localhost:9090 or k8spf:///pod.ns:9090)",
+				Sources:  cli.EnvVars("BRIDGE_SERVER_ADDR"),
 				Required: true,
-			},
-			&cli.StringFlag{
-				Name:     "function-url",
-				Usage:    "URL of the dispatcher function",
-				Sources:  cli.EnvVars("FUNCTION_URL"),
-				Required: true,
-			},
-			&cli.StringFlag{
-				Name:    "name",
-				Usage:   "Name for the sandbox (used for SSH config alias)",
-				Sources: cli.EnvVars("SANDBOX_NAME"),
 			},
 			&cli.IntFlag{
 				Name:  "proxy-port",
 				Usage: "Port for transparent proxy (0 = random)",
 				Value: 0,
-			},
-			&cli.IntFlag{
-				Name:  "ssh-proxy-port",
-				Usage: "Local port for SSH proxy (0 = random)",
-				Value: 0,
-			},
-			&cli.StringFlag{
-				Name:    "sync-source",
-				Usage:   "Local directory to sync from",
-				Sources: cli.EnvVars("SYNC_SOURCE"),
-				Value:   ".",
-			},
-			&cli.StringFlag{
-				Name:    "sync-target",
-				Usage:   "Remote directory on sandbox to sync to (default: root@<name>:/vercel/sandbox)",
-				Sources: cli.EnvVars("SYNC_TARGET"),
-			},
-			&cli.BoolFlag{
-				Name:  "no-sync",
-				Usage: "Disable file sync",
-			},
-			&cli.BoolFlag{
-				Name:  "no-ssh-proxy",
-				Usage: "Disable SSH proxy",
 			},
 			&cli.IntFlag{
 				Name:    "app-port",
@@ -90,15 +60,8 @@ func Intercept() *cli.Command {
 }
 
 func runIntercept(ctx context.Context, c *cli.Command) error {
-	sandboxURL := c.String("sandbox-url")
-	functionURL := c.String("function-url")
-	name := c.String("name")
+	serverAddr := c.String("server-addr")
 	proxyPort := c.Int("proxy-port")
-	sshProxyPort := c.Int("ssh-proxy-port")
-	syncSource := c.String("sync-source")
-	syncTarget := c.String("sync-target")
-	noSync := c.Bool("no-sync")
-	noSSHProxy := c.Bool("no-ssh-proxy")
 	appPort := c.Int("app-port")
 	dnsPort := c.Int("dns-port")
 
@@ -119,15 +82,28 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		slog.Info("No forward domains configured, DNS interception disabled")
 	}
 
-	// Derive name from sandbox URL if not provided
-	if name == "" {
-		u, err := url.Parse(sandboxURL)
-		if err == nil {
-			name = strings.Split(u.Host, ".")[0]
-		} else {
-			name = "sandbox"
-		}
+	// Connect to the bridge proxy server via gRPC
+	builder := k8spf.NewBuilder(k8spf.BuilderConfig{})
+	conn, err := grpc.NewClient(serverAddr,
+		append(builder.DialOptions(), grpc.WithTransportCredentials(insecure.NewCredentials()))...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to bridge proxy: %w", err)
 	}
+	defer conn.Close()
+	client := bridgev1.NewBridgeProxyServiceClient(conn)
+
+	// Open the shared tunnel stream. If app-port is set, ingress traffic from
+	// the server's --listen-ports will be forwarded to that local port.
+	stream, err := client.TunnelNetwork(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to open tunnel stream: %w", err)
+	}
+
+	dialer := plumbing.NewStaticPortDialer(appPort, nil)
+	tun := plumbing.NewTunnel(dialer, stream)
+	tun.Start(ctx)
+	slog.Info("Tunnel connected", "app_port", appPort)
 
 	// Create connection tracking registry
 	pool, err := ippool.New(proxyCIDR)
@@ -136,16 +112,13 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 	}
 	registry := conntrack.New(pool)
 
-	// Create tunnel client (shared by DNS exchange client and proxy)
-	tunnelClient := tunnel.NewClient(sandboxURL, functionURL, fmt.Sprintf("127.0.0.1:%d", appPort))
-
 	// Start DNS (optional)
 	var dns *DNSComponent
 	var originalResolvConf []byte
 	if len(forwardDomains) > 0 {
 		// Read the original nameserver before we modify /etc/resolv.conf
 		originalNS := readOriginalNameserver()
-		exchangeClient := bridgedns.NewTunnelExchangeClient(forwardDomains, tunnelClient, originalNS)
+		exchangeClient := bridgedns.NewTunnelExchangeClient(forwardDomains, &grpcDNSResolver{client: client}, originalNS)
 		dns, err = StartDNS(DNSConfig{
 			ListenPort: dnsPort,
 			Client:     exchangeClient,
@@ -153,7 +126,6 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		})
 		if err != nil {
 			registry.Stop()
-			_ = tunnelClient.Close()
 			return fmt.Errorf("failed to start DNS: %w", err)
 		}
 
@@ -165,108 +137,51 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Start proxy (transparent proxy + tunnel)
-	proxy, err := StartProxy(ProxyConfig{
-		TunnelClient: tunnelClient,
-		ProxyPort:    proxyPort,
-		Registry:     registry,
+	proxyComp, err := StartProxy(ProxyConfig{
+		Tunnel:    tun,
+		ProxyPort: proxyPort,
+		Registry:  registry,
 	})
 	if err != nil {
-		_ = tunnelClient.Close()
 		return fmt.Errorf("failed to start proxy listener: %w", err)
 	}
 
 	slog.Info("Bridge intercept starting",
-		"name", name,
-		"sandbox_url", sandboxURL,
-		"function_url", functionURL,
-		"proxy_port", proxy.Port(),
+		"server_addr", serverAddr,
+		"proxy_port", proxyComp.Port(),
 	)
 
 	// Set up iptables (TCP redirect for proxy CIDR)
-	if err := proxy.SetupIptables(); err != nil {
+	if err := proxyComp.SetupIptables(); err != nil {
 		slog.Warn("Failed to setup iptables",
 			"error", err,
 			"hint", "Traffic interception requires NET_ADMIN capability",
 		)
 	}
 
-	// Start SSH (optional)
-	var ssh *SSHComponent
-	if !noSSHProxy {
-		ssh, err = StartSSH(ctx, SSHConfig{
-			Name:       name,
-			SandboxURL: sandboxURL,
-			LocalPort:  sshProxyPort,
-		})
-		if err != nil {
-			slog.Warn("Failed to start SSH proxy", "error", err)
-		} else {
-			fmt.Printf("SSH: ssh %s\n", ssh.Host())
-		}
-	}
-
-	// Create cancellable context
+	// Create cancellable context for signal handling
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	// Signal handler (stops components in reverse order)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	var fileSync *FileSyncComponent
 
 	go func() {
 		<-sigChan
 		slog.Info("Shutting down...")
 		cancel()
-		if fileSync != nil {
-			fileSync.Stop()
-		}
-		if ssh != nil {
-			ssh.Stop()
-		}
-		if dns != nil {
-			dns.Stop()
-		}
-		restoreResolvConf(originalResolvConf)
-		if registry != nil {
-			registry.Stop()
-		}
-		proxy.Stop()
-		_ = tunnelClient.Close()
-		os.Exit(0)
 	}()
 
-	// Start SSH serve loop
-	if ssh != nil {
-		sshProxyReady := make(chan struct{})
-		go func() {
-			close(sshProxyReady)
-			if err := ssh.Serve(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("SSH proxy error", "error", err)
-			}
-		}()
-		<-sshProxyReady
-	}
+	// Block until context is cancelled
+	proxyComp.Run(ctx)
 
-	// Derive sync target from SSH proxy if not explicitly provided
-	if syncTarget == "" && ssh != nil {
-		syncTarget = fmt.Sprintf("vercel-sandbox@%s:/vercel/sandbox", ssh.Host())
+	// Cleanup in order: DNS → resolv.conf → registry → proxy
+	if dns != nil {
+		dns.Stop()
 	}
-
-	// Start file sync (optional, depends on SSH for target)
-	if !noSync && syncTarget != "" {
-		fileSync, err = StartFileSync(FileSyncConfig{
-			SyncName:   "bridge-sync",
-			SyncSource: syncSource,
-			SyncTarget: syncTarget,
-		})
-		if err != nil {
-			slog.Error("Failed to start file sync", "error", err)
-		}
-	}
-
-	// Run proxy (blocking)
-	proxy.Run(ctx)
+	restoreResolvConf(originalResolvConf)
+	registry.Stop()
+	proxyComp.Stop()
 
 	return nil
 }
@@ -311,4 +226,23 @@ func restoreResolvConf(original []byte) {
 	} else {
 		slog.Info("Restored /etc/resolv.conf")
 	}
+}
+
+// grpcDNSResolver wraps a BridgeProxyServiceClient to satisfy the DNS resolver
+// interface used by TunnelExchangeClient.
+type grpcDNSResolver struct {
+	client bridgev1.BridgeProxyServiceClient
+}
+
+func (r *grpcDNSResolver) ResolveDNS(ctx context.Context, hostname string) (*tunnel.DNSResolveResult, error) {
+	resp, err := r.client.ResolveDNSQuery(ctx, &bridgev1.ProxyResolveDNSRequest{
+		Hostname: hostname,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ResolveDNSQuery RPC: %w", err)
+	}
+	return &tunnel.DNSResolveResult{
+		Addresses: resp.GetAddresses(),
+		Error:     resp.GetError(),
+	}, nil
 }

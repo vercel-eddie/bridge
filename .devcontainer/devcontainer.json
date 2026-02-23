@@ -1,0 +1,11 @@
+{
+  "name": "bridge",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "mounts": [
+    "source=bridge-bashhistory,target=/commandhistory,type=volume"
+  ],
+  "postCreateCommand": "sudo chown $(id -u) /commandhistory",
+  "remoteEnv": {
+    "HISTFILE": "/commandhistory/.shell_history"
+  }
+}

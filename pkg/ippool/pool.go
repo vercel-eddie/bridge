@@ -4,8 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"sync"
 	"sync/atomic"
+
+	"github.com/puzpuzpuz/xsync/v3"
 )
 
 // Pool manages a pool of IP addresses from a CIDR block.
@@ -13,7 +14,7 @@ type Pool struct {
 	network   *net.IPNet
 	baseIP    uint32
 	size      uint32
-	allocated sync.Map // map[uint32]bool
+	allocated *xsync.MapOf[uint32, bool]
 	nextIndex atomic.Uint32
 }
 
@@ -35,9 +36,10 @@ func New(cidr string) (*Pool, error) {
 	size := uint32(1 << (bits - ones))
 
 	p := &Pool{
-		network: network,
-		baseIP:  baseIP,
-		size:    size,
+		network:   network,
+		baseIP:    baseIP,
+		size:      size,
+		allocated: xsync.NewMapOf[uint32, bool](),
 	}
 	p.nextIndex.Store(1) // Start from 1 to skip the network address
 

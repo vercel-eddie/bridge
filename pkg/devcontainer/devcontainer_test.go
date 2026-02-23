@@ -1,0 +1,190 @@
+package devcontainer
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestRoundTrip_PreservesUnknownFields(t *testing.T) {
+	input := `{
+  "name": "my-dev",
+  "image": "ubuntu:22.04",
+  "features": {
+    "ghcr.io/example/feat:1": {
+      "key": "val"
+    }
+  },
+  "capAdd": ["NET_ADMIN"],
+  "build": {"dockerfile": "Dockerfile"},
+  "mounts": ["source=vol,target=/data,type=volume"],
+  "postCreateCommand": "echo hello"
+}`
+
+	var cfg Config
+	if err := json.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if cfg.Name != "my-dev" {
+		t.Errorf("name = %q, want %q", cfg.Name, "my-dev")
+	}
+	if cfg.Image != "ubuntu:22.04" {
+		t.Errorf("image = %q, want %q", cfg.Image, "ubuntu:22.04")
+	}
+	if len(cfg.CapAdd) != 1 || cfg.CapAdd[0] != "NET_ADMIN" {
+		t.Errorf("capAdd = %v, want [NET_ADMIN]", cfg.CapAdd)
+	}
+
+	// mounts is now a typed field.
+	if len(cfg.Mounts) != 1 || cfg.Mounts[0] != "source=vol,target=/data,type=volume" {
+		t.Errorf("mounts = %v, want [source=vol,target=/data,type=volume]", cfg.Mounts)
+	}
+
+	// Overflow must contain the unknown keys.
+	for _, key := range []string{"build", "postCreateCommand"} {
+		if _, ok := cfg.Overflow[key]; !ok {
+			t.Errorf("overflow missing key %q", key)
+		}
+	}
+
+	// Round-trip marshal.
+	out, err := json.MarshalIndent(&cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Re-parse and verify everything survived.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out, &raw); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+
+	for _, key := range []string{"name", "image", "features", "capAdd", "build", "mounts", "postCreateCommand"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("round-tripped JSON missing key %q", key)
+		}
+	}
+}
+
+func TestSetFeature(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetFeature("ghcr.io/example/feat:1", map[string]any{"version": "1.0"})
+
+	if len(cfg.Features) != 1 {
+		t.Fatalf("features len = %d, want 1", len(cfg.Features))
+	}
+	opts := cfg.Features["ghcr.io/example/feat:1"]
+	if opts["version"] != "1.0" {
+		t.Errorf("version = %v, want 1.0", opts["version"])
+	}
+
+	// Overwrite
+	cfg.SetFeature("ghcr.io/example/feat:1", map[string]any{"version": "2.0"})
+	if cfg.Features["ghcr.io/example/feat:1"]["version"] != "2.0" {
+		t.Errorf("version after overwrite = %v, want 2.0", cfg.Features["ghcr.io/example/feat:1"]["version"])
+	}
+}
+
+func TestEnsureCapAdd_Idempotent(t *testing.T) {
+	cfg := &Config{CapAdd: []string{"NET_ADMIN"}}
+	cfg.EnsureCapAdd("NET_ADMIN", "SYS_PTRACE")
+
+	if len(cfg.CapAdd) != 2 {
+		t.Fatalf("capAdd len = %d, want 2", len(cfg.CapAdd))
+	}
+
+	cfg.EnsureCapAdd("NET_ADMIN")
+	if len(cfg.CapAdd) != 2 {
+		t.Errorf("capAdd len after re-add = %d, want 2", len(cfg.CapAdd))
+	}
+}
+
+func TestLoadSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devcontainer.json")
+
+	original := &Config{
+		Name:  "test",
+		Image: "alpine:3",
+	}
+	original.SetFeature("ghcr.io/x/y:1", map[string]any{"a": "b"})
+	original.EnsureCapAdd("NET_ADMIN")
+
+	if err := original.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if loaded.Name != "test" {
+		t.Errorf("name = %q, want %q", loaded.Name, "test")
+	}
+	if loaded.Image != "alpine:3" {
+		t.Errorf("image = %q, want %q", loaded.Image, "alpine:3")
+	}
+	if len(loaded.Features) != 1 {
+		t.Errorf("features len = %d, want 1", len(loaded.Features))
+	}
+	if len(loaded.CapAdd) != 1 || loaded.CapAdd[0] != "NET_ADMIN" {
+		t.Errorf("capAdd = %v, want [NET_ADMIN]", loaded.CapAdd)
+	}
+}
+
+func TestLoad_NonExistent(t *testing.T) {
+	_, err := Load("/nonexistent/path/devcontainer.json")
+	if err == nil {
+		t.Error("expected error for non-existent file")
+	}
+}
+
+func TestLoad_ExistingThenModify(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devcontainer.json")
+
+	// Write a config with extra fields
+	existing := `{
+  "name": "existing",
+  "postCreateCommand": "npm install",
+  "capAdd": ["SYS_PTRACE"]
+}`
+	if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// Modify
+	cfg.Name = "updated"
+	cfg.SetFeature("ghcr.io/x/feat:1", map[string]any{"v": "1"})
+	cfg.EnsureCapAdd("NET_ADMIN")
+
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Reload and verify
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	if reloaded.Name != "updated" {
+		t.Errorf("name = %q, want %q", reloaded.Name, "updated")
+	}
+	if len(reloaded.CapAdd) != 2 {
+		t.Errorf("capAdd = %v, want [SYS_PTRACE NET_ADMIN]", reloaded.CapAdd)
+	}
+
+	// postCreateCommand must survive
+	if _, ok := reloaded.Overflow["postCreateCommand"]; !ok {
+		t.Error("postCreateCommand lost on round-trip")
+	}
+}

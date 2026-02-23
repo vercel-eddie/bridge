@@ -12,18 +12,21 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/puzpuzpuz/xsync/v3"
 	bridgev1 "github.com/vercel-eddie/bridge/api/go/bridge/v1"
+	"github.com/vercel-eddie/bridge/pkg/plumbing"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
 	maxReconnectDelay = 30 * time.Second
 )
+
+var _ TunnelDialer = (*Client)(nil)
 
 // Client implements the tunnel client using WebSocket.
 type Client struct {
@@ -37,10 +40,10 @@ type Client struct {
 	reconnectAttempts atomic.Int32
 
 	// Connection management
-	connections sync.Map // map[string]*Conn
+	connections *xsync.MapOf[string, *Conn]
 
-	// Pending DNS resolution requests: map[requestID]chan *bridgev1.ResolveDNSQueryResponse
-	dnsRequests sync.Map
+	// Pending DNS resolution requests
+	dnsRequests *xsync.MapOf[string, chan *bridgev1.ResolveDNSQueryResponse]
 }
 
 // NewClient creates a new tunnel client.
@@ -52,6 +55,8 @@ func NewClient(sandboxURL, functionURL, appAddr string) *Client {
 		functionURL:      functionURL,
 		protectionBypass: protectionBypass,
 		appAddr:          appAddr,
+		connections:      xsync.NewMapOf[string, *Conn](),
+		dnsRequests:      xsync.NewMapOf[string, chan *bridgev1.ResolveDNSQueryResponse](),
 	}
 }
 
@@ -90,17 +95,15 @@ func (c *Client) ConnectWithReconnect(ctx context.Context) {
 		attempts := c.reconnectAttempts.Add(1)
 
 		// Close all active connections
-		c.connections.Range(func(key, value any) bool {
-			if conn, ok := value.(*Conn); ok {
-				_ = conn.Close()
-			}
+		c.connections.Range(func(key string, conn *Conn) bool {
+			_ = conn.Close()
 			c.connections.Delete(key)
 			return true
 		})
 
 		// Fail all pending DNS requests
-		c.dnsRequests.Range(func(key, value any) bool {
-			close(value.(chan *bridgev1.ResolveDNSQueryResponse))
+		c.dnsRequests.Range(func(key string, ch chan *bridgev1.ResolveDNSQueryResponse) bool {
+			close(ch)
 			c.dnsRequests.Delete(key)
 			return true
 		})
@@ -213,7 +216,7 @@ func (c *Client) handleMessage(msg *bridgev1.Message) {
 	// Handle DNS resolution responses
 	if resp := msg.GetDnsResponse(); resp != nil {
 		if ch, ok := c.dnsRequests.LoadAndDelete(resp.GetRequestId()); ok {
-			ch.(chan *bridgev1.ResolveDNSQueryResponse) <- resp
+			ch <- resp
 		}
 		return
 	}
@@ -225,7 +228,7 @@ func (c *Client) handleMessage(msg *bridgev1.Message) {
 		source := msg.GetSource()
 		dest := msg.GetDest()
 		if source != nil && dest != nil {
-			connID = generateConnectionID(source.GetIp(), int(source.GetPort()), dest.GetIp(), int(dest.GetPort()))
+			connID = plumbing.ConnectionID(source.GetIp(), int(source.GetPort()), dest.GetIp(), int(dest.GetPort()))
 		} else {
 			slog.Error("Received an invalid message without a source or dest", "src", source, "dest", dest)
 			return
@@ -234,22 +237,18 @@ func (c *Client) handleMessage(msg *bridgev1.Message) {
 
 	// Handle close messages
 	if msg.GetClose() {
-		if value, ok := c.connections.LoadAndDelete(connID); ok {
-			if conn, ok := value.(*Conn); ok {
-				_ = conn.Close()
-			}
+		if conn, ok := c.connections.LoadAndDelete(connID); ok {
+			_ = conn.Close()
 		}
 		return
 	}
 
 	// Handle data for existing connection
-	if value, ok := c.connections.Load(connID); ok {
-		if conn, ok := value.(*Conn); ok {
-			select {
-			case conn.readBuf <- msg.GetData():
-			default:
-				slog.Warn("Connection read buffer full", "connection_id", connID)
-			}
+	if conn, ok := c.connections.Load(connID); ok {
+		select {
+		case conn.readBuf <- msg.GetData():
+		default:
+			slog.Warn("Connection read buffer full", "connection_id", connID)
 		}
 		return
 	}
@@ -373,13 +372,11 @@ func (c *Client) DialThroughTunnel(sourceAddr, destination string) (net.Conn, er
 	fmt.Sscanf(destPortStr, "%d", &destPort)
 
 	// Generate connection ID
-	connID := generateConnectionID(sourceHost, sourcePort, destHost, destPort)
+	connID := plumbing.ConnectionID(sourceHost, sourcePort, destHost, destPort)
 
 	// Check for existing connection
-	if value, ok := c.connections.Load(connID); ok {
-		if conn, ok := value.(*Conn); ok {
-			return conn, nil
-		}
+	if conn, ok := c.connections.Load(connID); ok {
+		return conn, nil
 	}
 
 	// Create new connection
@@ -448,7 +445,7 @@ func (c *Client) sendClose(connID string) error {
 
 // ResolveDNS sends a DNS resolution request through the tunnel and waits for
 // the response. The context controls the timeout for the round-trip.
-func (c *Client) ResolveDNS(ctx context.Context, hostname string) (*bridgev1.ResolveDNSQueryResponse, error) {
+func (c *Client) ResolveDNS(ctx context.Context, hostname string) (*DNSResolveResult, error) {
 	if !c.isConnected.Load() {
 		return nil, fmt.Errorf("tunnel not connected")
 	}
@@ -479,7 +476,10 @@ func (c *Client) ResolveDNS(ctx context.Context, hostname string) (*bridgev1.Res
 		if !ok {
 			return nil, fmt.Errorf("tunnel disconnected while waiting for DNS response")
 		}
-		return resp, nil
+		return &DNSResolveResult{
+			Addresses: resp.GetAddresses(),
+			Error:     resp.GetError(),
+		}, nil
 	case <-ctx.Done():
 		c.dnsRequests.Delete(requestID)
 		return nil, ctx.Err()
@@ -492,10 +492,8 @@ func (c *Client) Close() error {
 	conn := c.conn.Swap(nil)
 
 	// Close all connections
-	c.connections.Range(func(key, value any) bool {
-		if conn, ok := value.(*Conn); ok {
-			conn.Close()
-		}
+	c.connections.Range(func(key string, conn *Conn) bool {
+		conn.Close()
 		c.connections.Delete(key)
 		return true
 	})
