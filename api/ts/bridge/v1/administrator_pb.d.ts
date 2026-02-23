@@ -79,6 +79,13 @@ export declare type CreateBridgeResponse = Message<"bridge.v1.CreateBridgeRespon
    * @generated from field: int32 port = 3;
    */
   port: number;
+
+  /**
+   * The name of the Deployment that owns the bridged pod.
+   *
+   * @generated from field: string deployment_name = 4 [json_name = "deployment_name"];
+   */
+  deploymentName: string;
 };
 
 /**

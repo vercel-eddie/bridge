@@ -43,6 +43,7 @@ spec:
       containers:
         - name: administrator
           image: "{{ADMINISTRATOR_IMAGE}}"
+          imagePullPolicy: Always
           command: ["bridge", "administrator"]
           env:
             - name: POD_NAMESPACE

@@ -91,8 +91,12 @@ func WaitForPod(ctx context.Context, client kubernetes.Interface, ns, labelSelec
 	}
 }
 
-// podReady returns true if all containers in the pod are ready.
+// podReady returns true if all containers in the pod are ready and it is
+// not being deleted (a terminating pod may briefly appear Running+Ready).
 func podReady(pod *corev1.Pod) bool {
+	if pod.DeletionTimestamp != nil {
+		return false
+	}
 	if pod.Status.Phase != corev1.PodRunning {
 		return false
 	}

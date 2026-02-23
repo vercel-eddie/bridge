@@ -199,9 +199,10 @@ func (s *administratorServer) CreateBridge(ctx context.Context, req *bridgev1.Cr
 	}
 
 	return &bridgev1.CreateBridgeResponse{
-		Namespace: nsName,
-		PodName:   podName,
-		Port:      result.PodPort,
+		Namespace:      nsName,
+		PodName:        podName,
+		Port:           result.PodPort,
+		DeploymentName: result.DeploymentName,
 	}, nil
 }
 
@@ -244,7 +245,7 @@ func (s *administratorServer) DeleteBridge(ctx context.Context, req *bridgev1.De
 
 	if req.SourceDeployment != "" {
 		// Delete just the deployment for this source
-		err := s.client.AppsV1().Deployments(nsName).Delete(ctx, req.SourceDeployment, metav1.DeleteOptions{})
+		err := s.client.AppsV1().Deployments(nsName).Delete(ctx, resources.BridgeDeployName(req.SourceDeployment), metav1.DeleteOptions{})
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to delete deployment: %v", err)
 		}
@@ -261,11 +262,12 @@ func (s *administratorServer) DeleteBridge(ctx context.Context, req *bridgev1.De
 // findExistingBridge finds an existing bridge deployment in the namespace.
 func (s *administratorServer) findExistingBridge(ctx context.Context, ns, deployName string) (string, error) {
 	if deployName != "" {
-		_, err := s.client.AppsV1().Deployments(ns).Get(ctx, deployName, metav1.GetOptions{})
+		bridgeName := resources.BridgeDeployName(deployName)
+		_, err := s.client.AppsV1().Deployments(ns).Get(ctx, bridgeName, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
-		return deployName, nil
+		return bridgeName, nil
 	}
 
 	deploys, err := s.client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{

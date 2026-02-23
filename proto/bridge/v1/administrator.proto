@@ -42,6 +42,9 @@ message CreateBridgeResponse {
 
   // The port on the bridged pod where the bridge proxy server is listening.
   int32 port = 3;
+
+  // The name of the Deployment that owns the bridged pod.
+  string deployment_name = 4 [json_name = "deployment_name"];
 }
 
 // ListBridgesRequest is sent to query active bridges.

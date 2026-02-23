@@ -20,9 +20,10 @@ type Client struct {
 	Stderr io.Writer
 }
 
-// Up runs `devcontainer up`.
+// Up runs `devcontainer up`, removing any existing container so config
+// changes (e.g. new bridge server address) take effect.
 func (c *Client) Up(ctx context.Context) error {
-	args := []string{"up", "--workspace-folder", c.WorkspaceFolder}
+	args := []string{"up", "--workspace-folder", c.WorkspaceFolder, "--remove-existing-container"}
 	if c.ConfigPath != "" {
 		args = append(args, "--config", c.ConfigPath)
 	}

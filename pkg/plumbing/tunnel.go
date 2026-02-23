@@ -77,6 +77,8 @@ func (t *tunnel) AddConn(conn net.Conn, destOverride string) {
 	src := &bridgev1.TunnelAddress{Ip: srcHost, Port: int32(srcPort)}
 	dst := &bridgev1.TunnelAddress{Ip: dstHost, Port: int32(dstPort)}
 
+	slog.Debug("Tunnel: adding connection", "conn_id", connID, "src", srcAddr, "dst", dstAddr)
+
 	t.conns.Store(connID, conn)
 	go t.readFromConn(conn, connID, src, dst)
 }
@@ -132,9 +134,10 @@ func (t *tunnel) Start(ctx context.Context) {
 					return
 				}
 				if err := t.stream.Send(msg); err != nil {
-					slog.Debug("Stream send error", "error", err)
+					slog.Info("Tunnel: stream send error", "conn_id", msg.GetConnectionId(), "error", err)
 					return
 				}
+				slog.Debug("Tunnel: sent", "conn_id", msg.GetConnectionId(), "bytes", len(msg.GetData()))
 			case <-t.ctx.Done():
 				return
 			}
@@ -185,7 +188,9 @@ func (t *tunnel) Start(ctx context.Context) {
 
 			case err := <-recvErr:
 				if err != io.EOF {
-					slog.Debug("Stream recv error", "error", err)
+					slog.Info("Tunnel: stream recv error", "error", err)
+				} else {
+					slog.Info("Tunnel: stream closed (EOF)")
 				}
 				return
 
@@ -199,14 +204,15 @@ func (t *tunnel) Start(ctx context.Context) {
 func (t *tunnel) handleNewConn(msg *bridgev1.TunnelNetworkMessage) {
 	dest := msg.GetDest()
 	if dest == nil {
-		slog.Debug("Ignoring message for unknown connection with no dest", "connection_id", msg.GetConnectionId())
+		slog.Info("Tunnel: ignoring message with no dest", "conn_id", msg.GetConnectionId())
 		return
 	}
 
 	addr := fmt.Sprintf("%s:%d", dest.GetIp(), dest.GetPort())
+	slog.Info("Tunnel: dialing new connection", "conn_id", msg.GetConnectionId(), "dest", addr)
 	conn, err := t.dialer.DialContext(t.ctx, "tcp", addr)
 	if err != nil {
-		slog.Debug("Failed to dial for new connection", "connection_id", msg.GetConnectionId(), "dest", addr, "error", err)
+		slog.Info("Tunnel: dial failed", "conn_id", msg.GetConnectionId(), "dest", addr, "error", err)
 		select {
 		case t.sendCh <- &bridgev1.TunnelNetworkMessage{
 			ConnectionId: msg.GetConnectionId(),
@@ -216,6 +222,8 @@ func (t *tunnel) handleNewConn(msg *bridgev1.TunnelNetworkMessage) {
 		}
 		return
 	}
+
+	slog.Info("Tunnel: dial succeeded", "conn_id", msg.GetConnectionId(), "dest", addr)
 
 	connID := msg.GetConnectionId()
 	t.conns.Store(connID, conn)

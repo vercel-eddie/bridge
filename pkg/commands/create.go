@@ -18,9 +18,11 @@ import (
 	"github.com/vercel-eddie/bridge/pkg/devcontainer"
 	"github.com/vercel-eddie/bridge/pkg/identity"
 	"github.com/vercel-eddie/bridge/pkg/k8s/k8spf"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 const defaultFeatureRef = "ghcr.io/vercel-eddie/bridge/features/bridge:edge"
+const devFeatureRef = "../local-features/bridge"
 
 const defaultAdminAddr = "k8spf:///administrator.bridge:9090?workload=deployment"
 
@@ -85,10 +87,16 @@ func Create() *cli.Command {
 func runCreate(ctx context.Context, c *cli.Command) error {
 	deploymentName := c.StringArg("deployment")
 	sourceNamespace := c.String("namespace")
+	if sourceNamespace == "" && deploymentName != "" {
+		sourceNamespace = currentKubeNamespace()
+	}
 	adminAddr := c.String("admin-addr")
 	connectFlag := c.Bool("connect")
 	force := c.Bool("force")
 	featureRef := c.String("feature-ref")
+	if featureRef == defaultFeatureRef && Version == "dev" {
+		featureRef = devFeatureRef
+	}
 
 	w := c.Root().Writer
 	r := c.Root().Reader
@@ -213,7 +221,7 @@ func generateDevcontainerConfig(w io.Writer, deploymentName, baseConfigPath, fea
 	}
 
 	cfg.Name = "bridge-" + dcName
-	bridgeServerAddr := fmt.Sprintf("k8spf:///%s.%s:%d", resp.PodName, resp.Namespace, resp.Port)
+	bridgeServerAddr := fmt.Sprintf("k8spf:///%s.%s:%d?workload=deployment", resp.DeploymentName, resp.Namespace, resp.Port)
 	cfg.SetFeature(featureRef, map[string]any{
 		"bridgeVersion":    Version,
 		"bridgeServerAddr": bridgeServerAddr,
@@ -223,17 +231,8 @@ func generateDevcontainerConfig(w io.Writer, deploymentName, baseConfigPath, fea
 	})
 	cfg.EnsureCapAdd("NET_ADMIN")
 
-	// Mount KUBECONFIG if set, unless the base config already configured it.
-	if kubeconfigPath := os.Getenv("KUBECONFIG"); kubeconfigPath != "" {
-		if _, exists := cfg.ContainerEnv["KUBECONFIG"]; !exists {
-			absPath, err := filepath.Abs(kubeconfigPath)
-			if err != nil {
-				return "", fmt.Errorf("failed to resolve KUBECONFIG path: %w", err)
-			}
-			mountTarget := "/tmp/bridge-kubeconfig"
-			cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", absPath, mountTarget))
-			cfg.EnsureContainerEnv("KUBECONFIG", mountTarget)
-		}
+	if err := configureDevMounts(cfg); err != nil {
+		return "", err
 	}
 
 	if err := os.MkdirAll(dcDir, 0755); err != nil {
@@ -243,8 +242,149 @@ func generateDevcontainerConfig(w io.Writer, deploymentName, baseConfigPath, fea
 		return "", fmt.Errorf("failed to write devcontainer config: %w", err)
 	}
 
+	// Ensure generated bridge config directories are gitignored.
+	ensureGitignore(baseParent, "bridge-*/")
+
 	fmt.Fprintf(w, "\nDevcontainer config written to %s\n", dcConfigPath)
 	return dcConfigPath, nil
+}
+
+// currentKubeNamespace returns the current Kubernetes namespace.
+// In-cluster it reads /var/run/secrets/kubernetes.io/serviceaccount/namespace;
+// out-of-cluster it reads the kubeconfig context. Falls back to "default".
+func currentKubeNamespace() string {
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if ns := strings.TrimSpace(string(data)); ns != "" {
+			return ns
+		}
+	}
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+	ns, _, err := kubeConfig.Namespace()
+	if err != nil || ns == "" {
+		return "default"
+	}
+	return ns
+}
+
+// configureDevMounts adds host bind mounts needed for local development:
+// the linux bridge binary (dev mode), KUBECONFIG, and Docker network access.
+func configureDevMounts(cfg *devcontainer.Config) error {
+	// In dev mode, bind-mount the linux bridge binary into the container.
+	if Version == "dev" {
+		binPath, err := filepath.Abs(filepath.Join("dist", "bridge-linux"))
+		if err != nil {
+			return fmt.Errorf("failed to resolve bridge binary path: %w", err)
+		}
+		if _, err := os.Stat(binPath); err != nil {
+			return fmt.Errorf("dev mode requires a linux bridge binary at %s — build with: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o dist/bridge-linux ./cmd/bridge", binPath)
+		}
+		cfg.SetMount(fmt.Sprintf("source=%s,target=/usr/local/bin/bridge,type=bind,readonly", binPath))
+	}
+
+	// Mount KUBECONFIG unless the base config already configured it.
+	if _, exists := cfg.ContainerEnv["KUBECONFIG"]; !exists {
+		if err := configureKubeconfig(cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// configureKubeconfig mounts a kubeconfig into the devcontainer. If any cluster
+// server URL points to localhost/0.0.0.0/127.0.0.1, it rewrites it to
+// host.docker.internal so it's reachable from inside the container.
+func configureKubeconfig(cfg *devcontainer.Config) error {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+
+	rawConfig, err := kubeConfig.RawConfig()
+	if err != nil {
+		return nil // no kubeconfig available, skip
+	}
+
+	mountTarget := "/tmp/bridge-kubeconfig"
+
+	// Rewrite localhost URLs so they're reachable from inside Docker.
+	needsRewrite := false
+	for _, cluster := range rawConfig.Clusters {
+		for _, local := range []string{"://0.0.0.0:", "://127.0.0.1:", "://localhost:"} {
+			if strings.Contains(cluster.Server, local) {
+				cluster.Server = strings.Replace(cluster.Server, local, "://host.docker.internal:", 1)
+				cluster.InsecureSkipTLSVerify = true
+				cluster.CertificateAuthorityData = nil
+				needsRewrite = true
+				break
+			}
+		}
+	}
+
+	if needsRewrite {
+		rewritten, err := clientcmd.Write(rawConfig)
+		if err != nil {
+			return fmt.Errorf("failed to rewrite kubeconfig: %w", err)
+		}
+		tmpFile, err := os.CreateTemp("", "bridge-kubeconfig-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp kubeconfig: %w", err)
+		}
+		if _, err := tmpFile.Write(rewritten); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("failed to write temp kubeconfig: %w", err)
+		}
+		tmpFile.Close()
+		cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", tmpFile.Name(), mountTarget))
+	} else {
+		kubeconfigPath := os.Getenv("KUBECONFIG")
+		if kubeconfigPath == "" {
+			home, _ := os.UserHomeDir()
+			if home != "" {
+				defaultPath := filepath.Join(home, ".kube", "config")
+				if _, err := os.Stat(defaultPath); err == nil {
+					kubeconfigPath = defaultPath
+				}
+			}
+		}
+		if kubeconfigPath == "" {
+			return nil
+		}
+		absPath, err := filepath.Abs(kubeconfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve KUBECONFIG path: %w", err)
+		}
+		cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", absPath, mountTarget))
+	}
+
+	cfg.EnsureContainerEnv("KUBECONFIG", mountTarget)
+	return nil
+}
+
+// ensureGitignore adds a pattern to the .gitignore file in dir if not already present.
+func ensureGitignore(dir, pattern string) {
+	gitignorePath := filepath.Join(dir, ".gitignore")
+
+	data, err := os.ReadFile(gitignorePath)
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) == pattern {
+				return
+			}
+		}
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Warn("Failed to update .gitignore", "path", gitignorePath, "error", err)
+		return
+	}
+	defer f.Close()
+
+	// Add a newline before the pattern if the file doesn't end with one.
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	f.WriteString(pattern + "\n")
 }
 
 // startDevcontainer starts the devcontainer and attaches an interactive shell.

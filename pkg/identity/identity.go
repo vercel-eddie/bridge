@@ -77,8 +77,13 @@ func GetDeviceID() (string, error) {
 }
 
 // NamespaceForDevice returns the Kubernetes namespace name for a given device ID.
+// It uses a short prefix of the device ID for readability while remaining unique.
 func NamespaceForDevice(deviceID string) string {
-	return "bridge-" + deviceID
+	short := deviceID
+	if len(short) > 6 {
+		short = short[:6]
+	}
+	return "bridge-" + short
 }
 
 func deviceIDPath() (string, error) {

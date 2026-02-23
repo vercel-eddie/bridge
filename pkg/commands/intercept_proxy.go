@@ -127,6 +127,7 @@ func (p *ProxyComponent) handleOutbound(clientConn net.Conn) {
 
 	// If we have a registry, resolve the proxy IP back to the real IP
 	destination := origDst
+	hostname := ""
 	if p.registry != nil {
 		host, port, err := net.SplitHostPort(origDst)
 		if err == nil {
@@ -134,19 +135,17 @@ func (p *ProxyComponent) handleOutbound(clientConn net.Conn) {
 			if proxyIP != nil {
 				if entry := p.registry.LookupAndMark(proxyIP); entry != nil {
 					destination = net.JoinHostPort(entry.ResolvedIP.String(), port)
-					slog.Debug("Resolved proxy IP to real IP",
-						"proxy_ip", host,
-						"hostname", entry.Hostname,
-						"real_ip", entry.ResolvedIP,
-					)
+					hostname = entry.Hostname
 				}
 			}
 		}
 	}
 
-	slog.Debug("Intercepted outbound connection",
+	slog.Info("Intercepted outbound connection",
 		"source", clientConn.RemoteAddr(),
+		"orig_dst", origDst,
 		"destination", destination,
+		"hostname", hostname,
 	)
 
 	// Hand the connection to the tunnel; it owns the conn from here.

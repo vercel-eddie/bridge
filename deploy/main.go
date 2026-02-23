@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	go run deploy/main.go [-cluster name]
+//	go run deploy/main.go [-registry addr]
 package main
 
 import (
@@ -24,12 +24,14 @@ import (
 )
 
 const (
-	adminImage      = "administrator:local"
-	testServerImage = "test-api-server:local"
+	// pushRegistry is the host-accessible registry address used for docker push.
+	pushRegistry = "k3d-bridge-registry.localhost:5111"
+	// pullRegistry is the in-cluster registry address used in pod image references.
+	// k3d maps this to the internal registry endpoint via registries.yaml.
+	pullRegistry = "bridge-registry:5111"
 )
 
 func main() {
-	cluster := flag.String("cluster", "k3s-default", "k3d cluster name")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -40,18 +42,24 @@ func main() {
 		log.Fatalf("Failed to find project root: %v", err)
 	}
 
-	// 1. Build images.
+	// Push images use the host-accessible registry; pull images use the in-cluster name.
+	adminPushImage := pushRegistry + "/administrator:latest"
+	adminPullImage := pullRegistry + "/administrator:latest"
+	testServerPushImage := pushRegistry + "/test-api-server:latest"
+	testServerPullImage := pullRegistry + "/test-api-server:latest"
+
+	// 1. Build and push images.
 	log.Println("Building administrator image...")
-	dockerBuild(root, filepath.Join("services", "administrator", "Dockerfile"), adminImage)
+	dockerBuild(root, filepath.Join("services", "administrator", "Dockerfile"), adminPushImage)
 
 	log.Println("Building test server image...")
-	dockerBuild(filepath.Join(root, "e2e", "testserver"), "Dockerfile", testServerImage)
+	dockerBuild(filepath.Join(root, "e2e", "testserver"), "Dockerfile", testServerPushImage)
 
-	// 2. Import images into k3d.
-	log.Printf("Importing images into k3d cluster %q...\n", *cluster)
-	run("k3d", "image", "import", adminImage, testServerImage, "-c", *cluster)
+	log.Println("Pushing images to registry...")
+	run("docker", "push", adminPushImage)
+	run("docker", "push", testServerPushImage)
 
-	// 3. Connect to the cluster and apply manifests.
+	// 2. Connect to the cluster and apply manifests.
 	restCfg, err := kube.RestConfig(kube.Config{})
 	if err != nil {
 		log.Fatalf("Failed to get kubeconfig: %v", err)
@@ -59,18 +67,23 @@ func main() {
 
 	log.Println("Applying administrator manifests...")
 	if err := manifests.Apply(ctx, restCfg, filepath.Join(root, "deploy", "k8s", "administrator.yaml"), map[string]string{
-		"{{ADMINISTRATOR_IMAGE}}": adminImage,
-		"{{PROXY_IMAGE}}":         adminImage,
+		"{{ADMINISTRATOR_IMAGE}}": adminPullImage,
+		"{{PROXY_IMAGE}}":         adminPullImage,
 	}); err != nil {
 		log.Fatalf("Failed to apply administrator manifests: %v", err)
 	}
 
 	log.Println("Applying test server manifests...")
 	if err := manifests.Apply(ctx, restCfg, filepath.Join(root, "deploy", "k8s", "testserver.yaml"), map[string]string{
-		"{{TESTSERVER_IMAGE}}": testServerImage,
+		"{{TESTSERVER_IMAGE}}": testServerPullImage,
 	}); err != nil {
 		log.Fatalf("Failed to apply test server manifests: %v", err)
 	}
+
+	// 3. Restart deployments to pick up new images.
+	log.Println("Restarting deployments...")
+	run("kubectl", "rollout", "restart", "deployment/administrator", "-n", "bridge")
+	run("kubectl", "rollout", "restart", "deployment/test-api-server", "-n", "test-workloads")
 
 	// 4. Wait for rollouts.
 	clientset, err := kubernetes.NewForConfig(restCfg)

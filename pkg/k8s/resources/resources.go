@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 
 	"github.com/vercel-eddie/bridge/pkg/k8s/meta"
 
@@ -15,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -27,6 +29,29 @@ const (
 	// copiedConfigMapName is the name of the consolidated ConfigMap in the target namespace.
 	copiedConfigMapName = "bridge-copied-config"
 )
+
+// BridgeDeployName returns the bridge deployment name for a source deployment.
+func BridgeDeployName(sourceDeployment string) string {
+	return "bridge-" + sourceDeployment
+}
+
+var adjectives = []string{
+	"bold", "calm", "cool", "dark", "fair", "fast", "keen", "kind",
+	"live", "neat", "pure", "rare", "safe", "slim", "soft", "warm",
+	"wise", "able", "blue", "deep",
+}
+
+var nouns = []string{
+	"arch", "beam", "bell", "bolt", "cape", "cask", "dawn", "dove",
+	"edge", "fern", "flint", "gate", "glen", "haze", "iris", "jade",
+	"knot", "lake", "lark", "mesa",
+}
+
+func randomBridgeName() string {
+	adj := adjectives[rand.IntN(len(adjectives))]
+	noun := nouns[rand.IntN(len(nouns))]
+	return adj + "-" + noun
+}
 
 // CopyConfig holds configuration for a resource copy+transform operation.
 type CopyConfig struct {
@@ -82,6 +107,11 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 		return nil, fmt.Errorf("failed to create bridged deployment: %w", err)
 	}
 
+	// Create a Service so the proxy is addressable by name within the cluster.
+	if err := ensureService(ctx, client, cfg.TargetNamespace, deployName, proxyPort); err != nil {
+		return nil, fmt.Errorf("failed to create service: %w", err)
+	}
+
 	return &CopyResult{
 		DeploymentName: deployName,
 		PodPort:        proxyPort,
@@ -98,7 +128,7 @@ func CreateSimpleDeployment(ctx context.Context, client kubernetes.Interface, na
 	replicas := int32(1)
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bridge-proxy",
+			Name:      randomBridgeName(),
 			Namespace: namespace,
 			Labels:    map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
 		},
@@ -139,6 +169,10 @@ func CreateSimpleDeployment(ctx context.Context, client kubernetes.Interface, na
 		if _, err := client.AppsV1().Deployments(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
 			return nil, fmt.Errorf("failed to update simple deployment: %w", err)
 		}
+	}
+
+	if err := ensureService(ctx, client, namespace, deploy.Name, defaultProxyPort); err != nil {
+		return nil, fmt.Errorf("failed to create service: %w", err)
 	}
 
 	return &CopyResult{
@@ -376,9 +410,10 @@ func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, s
 		rewriteEnvRefs(&containers[i])
 	}
 
+	deployName := BridgeDeployName(src.Name)
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      src.Name,
+			Name:      deployName,
 			Namespace: targetNS,
 			Labels: map[string]string{
 				meta.LabelBridgeType:              meta.BridgeTypeProxy,
@@ -443,6 +478,41 @@ func rewriteEnvRefs(container *corev1.Container) {
 			container.EnvFrom[i].ConfigMapRef.Name = copiedConfigMapName
 		}
 	}
+}
+
+// ensureService creates or updates a ClusterIP Service that maps port 80 to the
+// given target port, selecting pods via the bridge proxy label.
+func ensureService(ctx context.Context, client kubernetes.Interface, namespace, name string, targetPort int32) error {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{meta.LabelBridgeType: meta.BridgeTypeProxy},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Port:       80,
+					TargetPort: intstr.FromInt32(targetPort),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
+
+	existing, err := client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		_, err = client.CoreV1().Services(namespace).Create(ctx, svc, metav1.CreateOptions{})
+		return err
+	} else if err != nil {
+		return err
+	}
+	existing.Spec.Ports = svc.Spec.Ports
+	existing.Spec.Selector = svc.Spec.Selector
+	_, err = client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 func createOrUpdate(ctx context.Context, client kubernetes.Interface, ns string, secret *corev1.Secret) error {

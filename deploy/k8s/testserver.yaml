@@ -61,6 +61,7 @@ spec:
       containers:
         - name: testserver
           image: "{{TESTSERVER_IMAGE}}"
+          imagePullPolicy: Always
           env:
             - name: PORT
               value: "8080"
@@ -91,6 +92,6 @@ spec:
     app: test-api-server
   ports:
     - name: http
-      port: 8080
+      port: 80
       targetPort: 8080
       protocol: TCP

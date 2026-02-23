@@ -104,9 +104,11 @@ type CreateBridgeResponse struct {
 	// The name of the bridged pod.
 	PodName string `protobuf:"bytes,2,opt,name=pod_name,proto3" json:"pod_name,omitempty"`
 	// The port on the bridged pod where the bridge proxy server is listening.
-	Port          int32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Port int32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	// The name of the Deployment that owns the bridged pod.
+	DeploymentName string `protobuf:"bytes,4,opt,name=deployment_name,proto3" json:"deployment_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateBridgeResponse) Reset() {
@@ -158,6 +160,13 @@ func (x *CreateBridgeResponse) GetPort() int32 {
 		return x.Port
 	}
 	return 0
+}
+
+func (x *CreateBridgeResponse) GetDeploymentName() string {
+	if x != nil {
+		return x.DeploymentName
+	}
+	return ""
 }
 
 // ListBridgesRequest is sent to query active bridges.
@@ -444,11 +453,12 @@ const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12,\n" +
 	"\x11source_deployment\x18\x02 \x01(\tR\x11source_deployment\x12*\n" +
 	"\x10source_namespace\x18\x03 \x01(\tR\x10source_namespace\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"d\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"\x8e\x01\n" +
 	"\x14CreateBridgeResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1a\n" +
 	"\bpod_name\x18\x02 \x01(\tR\bpod_name\x12\x12\n" +
-	"\x04port\x18\x03 \x01(\x05R\x04port\"2\n" +
+	"\x04port\x18\x03 \x01(\x05R\x04port\x12(\n" +
+	"\x0fdeployment_name\x18\x04 \x01(\tR\x0fdeployment_name\"2\n" +
 	"\x12ListBridgesRequest\x12\x1c\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\"\xda\x01\n" +
 	"\n" +
