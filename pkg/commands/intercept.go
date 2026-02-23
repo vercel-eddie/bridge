@@ -16,7 +16,6 @@ import (
 	"github.com/vercel/bridge/pkg/ippool"
 	"github.com/vercel/bridge/pkg/k8s/k8spf"
 	"github.com/vercel/bridge/pkg/plumbing"
-	"github.com/vercel/bridge/pkg/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -234,14 +233,14 @@ type grpcDNSResolver struct {
 	client bridgev1.BridgeProxyServiceClient
 }
 
-func (r *grpcDNSResolver) ResolveDNS(ctx context.Context, hostname string) (*tunnel.DNSResolveResult, error) {
+func (r *grpcDNSResolver) ResolveDNS(ctx context.Context, hostname string) (*bridgedns.DNSResolveResult, error) {
 	resp, err := r.client.ResolveDNSQuery(ctx, &bridgev1.ProxyResolveDNSRequest{
 		Hostname: hostname,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ResolveDNSQuery RPC: %w", err)
 	}
-	return &tunnel.DNSResolveResult{
+	return &bridgedns.DNSResolveResult{
 		Addresses: resp.GetAddresses(),
 		Error:     resp.GetError(),
 	}, nil

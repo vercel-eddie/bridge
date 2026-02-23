@@ -8,59 +8,31 @@ import { enumDesc, fileDesc, messageDesc, tsEnum } from "@bufbuild/protobuf/code
  * Describes the file bridge/v1/bridge.proto.
  */
 export const file_bridge_v1_bridge = /*@__PURE__*/
-  fileDesc("ChZicmlkZ2UvdjEvYnJpZGdlLnByb3RvEglicmlkZ2UudjEiXAoQU2VydmVyQ29ubmVjdGlvbhIgCgtzYW5kYm94X3VybBgBIAEoCVILc2FuZGJveF91cmwSJgoOY29ubmVjdGlvbl9rZXkYAiABKAlSDmNvbm5lY3Rpb25fa2V5IuMFCgdNZXNzYWdlEjoKDHJlZ2lzdHJhdGlvbhgBIAEoCzIfLmJyaWRnZS52MS5NZXNzYWdlLlJlZ2lzdHJhdGlvbkgAiAEBEioKBnNvdXJjZRgCIAEoCzIaLmJyaWRnZS52MS5NZXNzYWdlLkFkZHJlc3MSKAoEZGVzdBgDIAEoCzIaLmJyaWRnZS52MS5NZXNzYWdlLkFkZHJlc3MSDAoEZGF0YRgEIAEoDBIkCg1jb25uZWN0aW9uX2lkGAUgASgJUg1jb25uZWN0aW9uX2lkEg0KBWNsb3NlGAYgASgIEg0KBWVycm9yGAcgASgJEkgKC2Ruc19yZXF1ZXN0GAggASgLMiEuYnJpZGdlLnYxLlJlc29sdmVETlNRdWVyeVJlcXVlc3RIAVILZG5zX3JlcXVlc3SIAQESSwoMZG5zX3Jlc3BvbnNlGAkgASgLMiIuYnJpZGdlLnYxLlJlc29sdmVETlNRdWVyeVJlc3BvbnNlSAJSDGRuc19yZXNwb25zZYgBARojCgdBZGRyZXNzEgoKAmlwGAEgASgJEgwKBHBvcnQYAiABKAUauwEKDFJlZ2lzdHJhdGlvbhIcCglpc19zZXJ2ZXIYASABKAhSCWlzX3NlcnZlchItCghwcm90b2NvbBgCIAEoDjIbLmJyaWRnZS52MS5NZXNzYWdlLlByb3RvY29sEiIKDGZ1bmN0aW9uX3VybBgDIAEoCVIMZnVuY3Rpb25fdXJsEjoKGHByb3RlY3Rpb25fYnlwYXNzX3NlY3JldBgEIAEoCVIYcHJvdGVjdGlvbl9ieXBhc3Nfc2VjcmV0IkgKCFByb3RvY29sEhgKFFBST1RPQ09MX1VOU1BFQ0lGSUVEEAASEAoMUFJPVE9DT0xfVENQEAESEAoMUFJPVE9DT0xfVURQEAJCDwoNX3JlZ2lzdHJhdGlvbkIOCgxfZG5zX3JlcXVlc3RCDwoNX2Ruc19yZXNwb25zZSJKChZSZXNvbHZlRE5TUXVlcnlSZXF1ZXN0Eh4KCnJlcXVlc3RfaWQYASABKAlSCnJlcXVlc3RfaWQSEAoIaG9zdG5hbWUYAiABKAkiWwoXUmVzb2x2ZUROU1F1ZXJ5UmVzcG9uc2USHgoKcmVxdWVzdF9pZBgBIAEoCVIKcmVxdWVzdF9pZBIRCglhZGRyZXNzZXMYAiADKAkSDQoFZXJyb3IYAyABKAlClQEKDWNvbS5icmlkZ2UudjFCC0JyaWRnZVByb3RvUAFaMmdpdGh1Yi5jb20vdmVyY2VsL2JyaWRnZS9hcGkvZ28vYnJpZGdlL3YxO2JyaWRnZXYxogIDQlhYqgIJQnJpZGdlLlYxygIJQnJpZGdlXFYx4gIVQnJpZGdlXFYxXEdQQk1ldGFkYXRh6gIKQnJpZGdlOjpWMWIGcHJvdG8z");
-
-/**
- * Describes the message bridge.v1.ServerConnection.
- * Use `create(ServerConnectionSchema)` to create a new message.
- */
-export const ServerConnectionSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 0);
+  fileDesc("ChZicmlkZ2UvdjEvYnJpZGdlLnByb3RvEglicmlkZ2UudjEioAIKB01lc3NhZ2USKgoGc291cmNlGAIgASgLMhouYnJpZGdlLnYxLk1lc3NhZ2UuQWRkcmVzcxIoCgRkZXN0GAMgASgLMhouYnJpZGdlLnYxLk1lc3NhZ2UuQWRkcmVzcxIMCgRkYXRhGAQgASgMEiQKDWNvbm5lY3Rpb25faWQYBSABKAlSDWNvbm5lY3Rpb25faWQSDQoFY2xvc2UYBiABKAgSDQoFZXJyb3IYByABKAkaIwoHQWRkcmVzcxIKCgJpcBgBIAEoCRIMCgRwb3J0GAIgASgFIkgKCFByb3RvY29sEhgKFFBST1RPQ09MX1VOU1BFQ0lGSUVEEAASEAoMUFJPVE9DT0xfVENQEAESEAoMUFJPVE9DT0xfVURQEAJClQEKDWNvbS5icmlkZ2UudjFCC0JyaWRnZVByb3RvUAFaMmdpdGh1Yi5jb20vdmVyY2VsL2JyaWRnZS9hcGkvZ28vYnJpZGdlL3YxO2JyaWRnZXYxogIDQlhYqgIJQnJpZGdlLlYxygIJQnJpZGdlXFYx4gIVQnJpZGdlXFYxXEdQQk1ldGFkYXRh6gIKQnJpZGdlOjpWMWIGcHJvdG8z");
 
 /**
  * Describes the message bridge.v1.Message.
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 1);
+  messageDesc(file_bridge_v1_bridge, 0);
 
 /**
  * Describes the message bridge.v1.Message.Address.
  * Use `create(Message_AddressSchema)` to create a new message.
  */
 export const Message_AddressSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 1, 0);
-
-/**
- * Describes the message bridge.v1.Message.Registration.
- * Use `create(Message_RegistrationSchema)` to create a new message.
- */
-export const Message_RegistrationSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 1, 1);
+  messageDesc(file_bridge_v1_bridge, 0, 0);
 
 /**
  * Describes the enum bridge.v1.Message.Protocol.
  */
 export const Message_ProtocolSchema = /*@__PURE__*/
-  enumDesc(file_bridge_v1_bridge, 1, 0);
+  enumDesc(file_bridge_v1_bridge, 0, 0);
 
 /**
  * @generated from enum bridge.v1.Message.Protocol
  */
 export const Message_Protocol = /*@__PURE__*/
   tsEnum(Message_ProtocolSchema);
-
-/**
- * Describes the message bridge.v1.ResolveDNSQueryRequest.
- * Use `create(ResolveDNSQueryRequestSchema)` to create a new message.
- */
-export const ResolveDNSQueryRequestSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 2);
-
-/**
- * Describes the message bridge.v1.ResolveDNSQueryResponse.
- * Use `create(ResolveDNSQueryResponseSchema)` to create a new message.
- */
-export const ResolveDNSQueryResponseSchema = /*@__PURE__*/
-  messageDesc(file_bridge_v1_bridge, 3);
 

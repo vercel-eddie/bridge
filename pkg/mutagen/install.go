@@ -91,7 +91,6 @@ func Install() error {
 }
 
 // InstallAgent downloads and installs the mutagen agent binary for the current OS.
-// This is used on the server side (sandbox) to install the agent that mutagen will invoke.
 // It also creates the symlink that mutagen expects at ~/.mutagen/agents/<version>/mutagen-agent.
 func InstallAgent() error {
 	if IsAgentInstalled() {

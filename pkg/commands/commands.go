@@ -56,7 +56,6 @@ func NewApp() *cli.Command {
 			return ctx, nil
 		},
 		Commands: []*cli.Command{
-			Connect(),
 			Server(),
 			Intercept(),
 			Create(),

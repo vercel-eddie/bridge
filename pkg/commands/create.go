@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -71,6 +72,7 @@ func Create() *cli.Command {
 				Sources: cli.EnvVars("BRIDGE_FEATURE_REF"),
 			},
 		},
+		Before: preflightCreate,
 		Arguments: []cli.Argument{
 			&cli.StringArg{
 				Name:      "deployment",
@@ -82,6 +84,48 @@ func Create() *cli.Command {
 		},
 		Action: runCreate,
 	}
+}
+
+// preflightCreate runs pre-flight checks before the create command executes.
+func preflightCreate(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if err := checkKubeconfig(); err != nil {
+		return ctx, err
+	}
+	if c.Bool("connect") {
+		if err := checkDocker(ctx); err != nil {
+			return ctx, err
+		}
+	}
+	return ctx, nil
+}
+
+// checkKubeconfig verifies that a kubeconfig file exists.
+func checkKubeconfig() error {
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	if kubeconfigPath == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			kubeconfigPath = filepath.Join(home, ".kube", "config")
+		}
+	}
+	if kubeconfigPath == "" {
+		return fmt.Errorf("no kubeconfig found: set the KUBECONFIG environment variable or create ~/.kube/config")
+	}
+	if _, err := os.Stat(kubeconfigPath); err != nil {
+		return fmt.Errorf("kubeconfig not found at %s: set the KUBECONFIG environment variable or run 'kubectl config view' to verify your setup", kubeconfigPath)
+	}
+	return nil
+}
+
+// checkDocker verifies that the Docker daemon is running.
+func checkDocker(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "docker", "info")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("Docker is not running: the --connect flag requires Docker to start a devcontainer. Please start Docker Desktop or the Docker daemon and try again")
+	}
+	return nil
 }
 
 func runCreate(ctx context.Context, c *cli.Command) error {
@@ -302,7 +346,16 @@ func configureKubeconfig(cfg *devcontainer.Config) error {
 
 	rawConfig, err := kubeConfig.RawConfig()
 	if err != nil {
-		return nil // no kubeconfig available, skip
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	// Resolve the kubeconfig file path for mounting.
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	if kubeconfigPath == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			kubeconfigPath = filepath.Join(home, ".kube", "config")
+		}
 	}
 
 	mountTarget := "/tmp/bridge-kubeconfig"
@@ -337,19 +390,6 @@ func configureKubeconfig(cfg *devcontainer.Config) error {
 		tmpFile.Close()
 		cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", tmpFile.Name(), mountTarget))
 	} else {
-		kubeconfigPath := os.Getenv("KUBECONFIG")
-		if kubeconfigPath == "" {
-			home, _ := os.UserHomeDir()
-			if home != "" {
-				defaultPath := filepath.Join(home, ".kube", "config")
-				if _, err := os.Stat(defaultPath); err == nil {
-					kubeconfigPath = defaultPath
-				}
-			}
-		}
-		if kubeconfigPath == "" {
-			return nil
-		}
 		absPath, err := filepath.Abs(kubeconfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to resolve KUBECONFIG path: %w", err)

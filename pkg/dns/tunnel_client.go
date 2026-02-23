@@ -9,12 +9,17 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/vercel/bridge/pkg/tunnel"
 )
 
-// tunnelDNSResolver is the subset of tunnel.TunnelDialer needed by TunnelExchangeClient.
+// DNSResolveResult holds the result of a DNS resolution.
+type DNSResolveResult struct {
+	Addresses []string
+	Error     string
+}
+
+// tunnelDNSResolver resolves hostnames via the bridge proxy (gRPC or other transport).
 type tunnelDNSResolver interface {
-	ResolveDNS(ctx context.Context, hostname string) (*tunnel.DNSResolveResult, error)
+	ResolveDNS(ctx context.Context, hostname string) (*DNSResolveResult, error)
 }
 
 const defaultTunnelDNSTimeout = 5 * time.Second

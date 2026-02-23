@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 
 	"github.com/vercel/bridge/pkg/k8s/meta"
 
@@ -92,30 +93,53 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 		return nil, fmt.Errorf("failed to copy config dependencies: %w", err)
 	}
 
-	// Use the first port from the source deployment's first container,
-	// falling back to the default if none is defined.
-	proxyPort := defaultProxyPort
+	// Collect all ports from the source deployment's first container.
+	var appPorts []int32
 	if containers := srcDeploy.Spec.Template.Spec.Containers; len(containers) > 0 {
-		if ports := containers[0].Ports; len(ports) > 0 {
-			proxyPort = ports[0].ContainerPort
+		for _, p := range containers[0].Ports {
+			appPorts = append(appPorts, p.ContainerPort)
 		}
 	}
 
+	// Choose a gRPC port that doesn't conflict with any app port so the
+	// bridge server can bind both the gRPC addr and ingress listeners.
+	grpcPort := chooseGRPCPort(appPorts)
+
 	// Create the transformed deployment
-	deployName, err := createBridgedDeployment(ctx, client, srcDeploy, cfg.TargetNamespace, cfg.ProxyImage, proxyPort)
+	deployName, err := createBridgedDeployment(ctx, client, srcDeploy, cfg.TargetNamespace, cfg.ProxyImage, grpcPort, appPorts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bridged deployment: %w", err)
 	}
 
 	// Create a Service so the proxy is addressable by name within the cluster.
-	if err := ensureService(ctx, client, cfg.TargetNamespace, deployName, proxyPort); err != nil {
+	// The Service targets the first app port (ingress listener) when available,
+	// falling back to the gRPC port.
+	svcTargetPort := grpcPort
+	if len(appPorts) > 0 {
+		svcTargetPort = appPorts[0]
+	}
+	if err := ensureService(ctx, client, cfg.TargetNamespace, deployName, svcTargetPort); err != nil {
 		return nil, fmt.Errorf("failed to create service: %w", err)
 	}
 
 	return &CopyResult{
 		DeploymentName: deployName,
-		PodPort:        proxyPort,
+		PodPort:        grpcPort,
 	}, nil
+}
+
+// chooseGRPCPort picks a port for the gRPC server starting from 8080,
+// skipping any ports that are already used as app listen ports.
+func chooseGRPCPort(appPorts []int32) int32 {
+	used := make(map[int32]bool, len(appPorts))
+	for _, p := range appPorts {
+		used[p] = true
+	}
+	for p := int32(8080); ; p++ {
+		if !used[p] {
+			return p
+		}
+	}
 }
 
 // CreateSimpleDeployment creates a minimal Deployment with just the bridge proxy
@@ -380,7 +404,7 @@ func fetchConfigMaps(ctx context.Context, client kubernetes.Interface, ns string
 
 // createBridgedDeployment creates a new Deployment in the target namespace with the
 // application container replaced by the bridge proxy.
-func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, src *appsv1.Deployment, targetNS, proxyImage string, port int32) (string, error) {
+func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, src *appsv1.Deployment, targetNS, proxyImage string, grpcPort int32, listenPorts []int32) (string, error) {
 	replicas := int32(1)
 
 	// Build the transformed container list: replace the first container with bridge proxy,
@@ -389,15 +413,29 @@ func createBridgedDeployment(ctx context.Context, client kubernetes.Interface, s
 	for i, c := range src.Spec.Template.Spec.Containers {
 		if i == 0 {
 			// Replace the primary app container with bridge proxy.
-			// Pass --addr so the gRPC server listens on the same port
-			// as the original app container.
+			// The gRPC server and ingress listeners use separate ports so
+			// they don't collide.
+			args := []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
+			if len(listenPorts) > 0 {
+				var specs []string
+				for _, p := range listenPorts {
+					specs = append(specs, fmt.Sprintf("%d/tcp", p))
+				}
+				args = append(args, "--listen-ports", strings.Join(specs, ","))
+			}
+
+			ports := []corev1.ContainerPort{
+				{Name: "grpc", ContainerPort: grpcPort, Protocol: corev1.ProtocolTCP},
+			}
+			for _, p := range listenPorts {
+				ports = append(ports, corev1.ContainerPort{ContainerPort: p, Protocol: corev1.ProtocolTCP})
+			}
+
 			containers[i] = corev1.Container{
 				Name:    c.Name,
 				Image:   proxyImage,
-				Command: []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", port)},
-				Ports: []corev1.ContainerPort{
-					{ContainerPort: port, Protocol: corev1.ProtocolTCP},
-				},
+				Command: args,
+				Ports:   ports,
 			}
 		} else {
 			// Keep sidecar containers as-is
