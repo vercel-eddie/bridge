@@ -5,6 +5,7 @@ package namespace
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vercel/bridge/pkg/k8s/meta"
 
@@ -107,8 +108,17 @@ func ListBridgeNamespaces(ctx context.Context, client kubernetes.Interface, devi
 	return nsList.Items, nil
 }
 
+// bridgeNamespacePrefix is the required prefix for namespaces managed by the
+// administrator. DeleteNamespace refuses to delete namespaces without it.
+const bridgeNamespacePrefix = "bridge-"
+
 // DeleteNamespace removes a bridge namespace and all its resources.
+// It refuses to delete namespaces that don't start with "bridge-" as a
+// safety guard against accidental deletion of unrelated namespaces.
 func DeleteNamespace(ctx context.Context, client kubernetes.Interface, name string) error {
+	if !strings.HasPrefix(name, bridgeNamespacePrefix) {
+		return fmt.Errorf("refusing to delete namespace %q: not a bridge namespace (must start with %q)", name, bridgeNamespacePrefix)
+	}
 	err := client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 	if errors.IsNotFound(err) {
 		return nil
