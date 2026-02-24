@@ -99,7 +99,7 @@ func (s *CreateSuite) SetupSuite() {
 	require.NoError(s.T(), err, "failed to setup cluster")
 
 	// 2. Build and push images.
-	bridgeTag := "bridge:test"
+	bridgeTag := "bridge-cli:test"
 	err = testutil.BuildBridgeImage(s.ctx, bridgeTag)
 	require.NoError(s.T(), err, "failed to build bridge image")
 

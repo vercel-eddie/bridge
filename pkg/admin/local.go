@@ -22,12 +22,12 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-const defaultProxyImage = "ghcr.io/vercel/bridge:edge"
+const defaultProxyImage = "ghcr.io/vercel/bridge-cli:edge"
 
 // LocalConfig configures the local admin implementation.
 type LocalConfig struct {
 	// ProxyImage is the container image for the bridge proxy pod.
-	// Defaults to ghcr.io/vercel/bridge:edge.
+	// Defaults to ghcr.io/vercel/bridge-cli:edge.
 	ProxyImage string
 }
 

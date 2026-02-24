@@ -20,7 +20,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/bridge
+  IMAGE_NAME: ${{ github.repository_owner }}/bridge-cli
 
 jobs:
   build-and-push:

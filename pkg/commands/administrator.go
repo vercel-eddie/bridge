@@ -42,7 +42,7 @@ func Administrator() *cli.Command {
 			&cli.StringFlag{
 				Name:    "proxy-image",
 				Usage:   "Bridge proxy container image",
-				Value:   "ghcr.io/vercel/bridge:edge",
+				Value:   "ghcr.io/vercel/bridge-cli:edge",
 				Sources: cli.EnvVars("BRIDGE_PROXY_IMAGE"),
 			},
 			&cli.StringFlag{

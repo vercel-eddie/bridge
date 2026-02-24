@@ -139,12 +139,6 @@ func isSystemEnvVar(key string) bool {
 			return true
 		}
 	}
-	// Kubernetes injects service discovery vars like:
-	//   MYSERVICE_SERVICE_HOST, MYSERVICE_SERVICE_PORT, MYSERVICE_SERVICE_PORT_HTTP,
-	//   MYSERVICE_PORT, MYSERVICE_PORT_80_TCP, MYSERVICE_PORT_80_TCP_ADDR, etc.
-	if strings.Contains(key, "_SERVICE_HOST") || strings.Contains(key, "_SERVICE_PORT") || strings.Contains(key, "_PORT_") {
-		return true
-	}
 	return false
 }
 

@@ -22,11 +22,11 @@ import (
 	"github.com/vercel/bridge/pkg/interact"
 )
 
-const defaultFeatureRef = "ghcr.io/vercel/bridge/features/bridge-feature:edge"
+const defaultFeatureRef = "ghcr.io/vercel/bridge/bridge-feature:edge"
 const devFeatureRef = "../local-features/bridge-feature"
 
 const defaultAdminAddr = "k8spf:///administrator.bridge:9090?workload=deployment"
-const defaultProxyImage = "ghcr.io/vercel/bridge:edge"
+const defaultProxyImage = "ghcr.io/vercel/bridge-cli:edge"
 
 // Create returns the CLI command for creating a bridge.
 func Create() *cli.Command {

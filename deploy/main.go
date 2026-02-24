@@ -43,8 +43,8 @@ func main() {
 	}
 
 	// Push images use the host-accessible registry; pull images use the in-cluster name.
-	bridgePushImage := pushRegistry + "/bridge:latest"
-	bridgePullImage := pullRegistry + "/bridge:latest"
+	bridgePushImage := pushRegistry + "/bridge-cli:latest"
+	bridgePullImage := pullRegistry + "/bridge-cli:latest"
 	userservicePushImage := pushRegistry + "/userservice:latest"
 	userservicePullImage := pullRegistry + "/userservice:latest"
 
