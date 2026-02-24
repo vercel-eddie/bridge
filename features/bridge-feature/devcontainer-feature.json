@@ -1,5 +1,5 @@
 {
-  "id": "bridge",
+  "id": "bridge-feature",
   "version": "1.4.0",
   "name": "Bridge Tunnel Client",
   "description": "Connects to a bridge proxy server to intercept outbound traffic via iptables and tunnel it over gRPC.",

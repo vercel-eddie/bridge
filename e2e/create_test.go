@@ -59,8 +59,8 @@ func createWorkspace(t *testing.T, bridgeBin, projectRoot string, cluster *testu
 
 	// Copy the bridge feature into .devcontainer/ (the devcontainer CLI
 	// requires local features to live under .devcontainer/).
-	srcFeature := filepath.Join(projectRoot, "features", "bridge")
-	dstFeature := filepath.Join(dcDir, "local-features", "bridge")
+	srcFeature := filepath.Join(projectRoot, "features", "bridge-feature")
+	dstFeature := filepath.Join(dcDir, "local-features", "bridge-feature")
 	require.NoError(t, copyDir(srcFeature, dstFeature))
 
 	cfg := &devcontainer.Config{
@@ -197,7 +197,7 @@ func (s *CreateSuite) TestFullstackCreate() {
 			"--admin-addr", adminAddr,
 			"--yes",
 			"--connect",
-			"--feature-ref", "../local-features/bridge",
+			"--feature-ref", "../local-features/bridge-feature",
 			"-f", filepath.Join(s.workspaceDir, ".devcontainer", "devcontainer.json"),
 		})
 	}()
