@@ -1,7 +1,9 @@
 package devcontainer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -31,7 +33,7 @@ func (c *Client) Up(ctx context.Context) error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("devcontainer up: %w\n%s", err, out)
+		return fmt.Errorf("devcontainer up: %w\n%s", err, extractErrorMessage(out))
 	}
 	return nil
 }
@@ -93,6 +95,35 @@ func (c *Client) Stop(ctx context.Context) error {
 		return fmt.Errorf("docker stop: %w\n%s", err, stopOut)
 	}
 	return nil
+}
+
+// extractErrorMessage parses the devcontainer CLI's JSON output to find the
+// error message. The CLI emits newline-delimited JSON; the line with
+// "outcome":"error" contains the human-readable description. If no such line
+// is found, the raw output is returned as-is.
+func extractErrorMessage(out []byte) string {
+	var result struct {
+		Outcome     string `json:"outcome"`
+		Message     string `json:"message"`
+		Description string `json:"description"`
+	}
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		if err := json.Unmarshal(line, &result); err != nil {
+			continue
+		}
+		if result.Outcome == "error" {
+			msg := result.Description
+			if msg == "" {
+				msg = result.Message
+			}
+			return msg
+		}
+	}
+	return string(out)
 }
 
 func (c *Client) stdinOrDefault() io.Reader {

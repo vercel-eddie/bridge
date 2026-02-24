@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+trap 'echo "ERROR: install.sh failed at line $LINENO (exit code $?)" >&2' ERR
 
 # GitHub repository for bridge releases
 REPO="vercel/bridge"
@@ -7,6 +8,7 @@ REPO="vercel/bridge"
 # Install required tools
 install_dependencies() {
     if ! command -v curl &> /dev/null; then
+        echo "Installing curl..."
         if command -v apt-get &> /dev/null; then
             apt-get update && apt-get install -y curl ca-certificates
         elif command -v apk &> /dev/null; then
@@ -16,14 +18,17 @@ install_dependencies() {
         fi
     fi
 
-    # Install iptables if not present (needed for traffic interception)
+    # Install iptables if not present (needed for traffic interception).
+    # Non-fatal: the base image may already include it or the package
+    # repository may be unavailable during the build.
     if ! command -v iptables &> /dev/null; then
+        echo "Installing iptables..."
         if command -v apt-get &> /dev/null; then
-            apt-get update && apt-get install -y iptables
+            apt-get update && apt-get install -y iptables || echo "WARNING: failed to install iptables (will retry at runtime)" >&2
         elif command -v apk &> /dev/null; then
-            apk add --no-cache iptables
+            apk add --no-cache iptables || echo "WARNING: failed to install iptables (will retry at runtime)" >&2
         elif command -v yum &> /dev/null; then
-            yum install -y iptables
+            yum install -y iptables || echo "WARNING: failed to install iptables (will retry at runtime)" >&2
         fi
     fi
 }
