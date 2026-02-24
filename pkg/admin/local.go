@@ -146,20 +146,23 @@ func (l *localAdmin) ListBridges(ctx context.Context, deviceID string) ([]*Bridg
 		return nil, fmt.Errorf("device_id is required")
 	}
 
-	namespaces, err := namespace.ListBridgeNamespaces(ctx, l.client, deviceID)
+	nsName := identity.NamespaceForDevice(deviceID)
+	deploys, err := l.client.AppsV1().Deployments(nsName).List(ctx, metav1.ListOptions{
+		LabelSelector: meta.ProxySelector,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list bridge namespaces: %w", err)
+		return nil, fmt.Errorf("failed to list bridge deployments: %w", err)
 	}
 
 	var bridges []*BridgeInfo
-	for _, ns := range namespaces {
+	for _, d := range deploys.Items {
 		bridges = append(bridges, &BridgeInfo{
-			DeviceID:         ns.Labels[meta.LabelDeviceID],
-			SourceDeployment: ns.Labels[meta.LabelWorkloadSource],
-			SourceNamespace:  ns.Labels[meta.LabelWorkloadSourceNamespace],
-			Namespace:        ns.Name,
-			CreatedAt:        ns.CreationTimestamp.Format(time.RFC3339),
-			Status:           string(ns.Status.Phase),
+			DeviceID:         deviceID,
+			SourceDeployment: d.Labels[meta.LabelWorkloadSource],
+			SourceNamespace:  d.Labels[meta.LabelWorkloadSourceNamespace],
+			Namespace:        nsName,
+			DeploymentName:   d.Name,
+			CreatedAt:        d.CreationTimestamp.Format(time.RFC3339),
 		})
 	}
 	return bridges, nil

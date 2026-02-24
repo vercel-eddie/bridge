@@ -67,8 +67,8 @@ func (r *remoteAdmin) ListBridges(ctx context.Context, deviceID string) ([]*Brid
 			SourceDeployment: b.SourceDeployment,
 			SourceNamespace:  b.SourceNamespace,
 			Namespace:        b.Namespace,
+			DeploymentName:   b.DeploymentName,
 			CreatedAt:        b.CreatedAt,
-			Status:           b.Status,
 		}
 	}
 	return bridges, nil

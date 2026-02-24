@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
+	"github.com/vercel/bridge/pkg/except"
 	"github.com/vercel/bridge/pkg/identity"
 	"github.com/vercel/bridge/pkg/k8s/kube"
 	"github.com/vercel/bridge/pkg/k8s/meta"
@@ -231,22 +232,24 @@ func (s *administratorServer) ListBridges(ctx context.Context, req *bridgev1.Lis
 		return nil, status.Error(codes.InvalidArgument, "device_id is required")
 	}
 
-	namespaces, err := namespace.ListBridgeNamespaces(ctx, s.client, req.DeviceId)
+	nsName := identity.NamespaceForDevice(req.DeviceId)
+	deploys, err := s.client.AppsV1().Deployments(nsName).List(ctx, metav1.ListOptions{
+		LabelSelector: meta.ProxySelector,
+	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list bridge namespaces: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to list bridge deployments: %v", err)
 	}
 
 	var bridges []*bridgev1.BridgeInfo
-	for _, ns := range namespaces {
-		info := &bridgev1.BridgeInfo{
-			DeviceId:         ns.Labels[meta.LabelDeviceID],
-			SourceDeployment: ns.Labels[meta.LabelWorkloadSource],
-			SourceNamespace:  ns.Labels[meta.LabelWorkloadSourceNamespace],
-			Namespace:        ns.Name,
-			CreatedAt:        ns.CreationTimestamp.Format(time.RFC3339),
-			Status:           string(ns.Status.Phase),
-		}
-		bridges = append(bridges, info)
+	for _, d := range deploys.Items {
+		bridges = append(bridges, &bridgev1.BridgeInfo{
+			DeviceId:         req.DeviceId,
+			SourceDeployment: d.Labels[meta.LabelWorkloadSource],
+			SourceNamespace:  d.Labels[meta.LabelWorkloadSourceNamespace],
+			Namespace:        nsName,
+			DeploymentName:   d.Name,
+			CreatedAt:        d.CreationTimestamp.Format(time.RFC3339),
+		})
 	}
 
 	return &bridgev1.ListBridgesResponse{
@@ -258,22 +261,17 @@ func (s *administratorServer) DeleteBridge(ctx context.Context, req *bridgev1.De
 	if req.DeviceId == "" {
 		return nil, status.Error(codes.InvalidArgument, "device_id is required")
 	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	nsName := identity.NamespaceForDevice(req.DeviceId)
 
-	slog.Info("Deleting bridge", "device_id", req.DeviceId, "namespace", nsName, "source_deployment", req.SourceDeployment)
+	slog.Info("Deleting bridge", "device_id", req.DeviceId, "namespace", nsName, "name", req.Name)
 
-	if req.SourceDeployment != "" {
-		// Delete just the deployment for this source
-		err := s.client.AppsV1().Deployments(nsName).Delete(ctx, resources.BridgeDeployName(req.SourceDeployment), metav1.DeleteOptions{})
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to delete deployment: %v", err)
-		}
-	} else {
-		// Delete the entire namespace
-		if err := namespace.DeleteNamespace(ctx, s.client, nsName); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to delete namespace: %v", err)
-		}
+	err := s.client.AppsV1().Deployments(nsName).Delete(ctx, req.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return nil, except.GRPCFromK8s(err, "failed to delete deployment")
 	}
 
 	return &bridgev1.DeleteBridgeResponse{}, nil

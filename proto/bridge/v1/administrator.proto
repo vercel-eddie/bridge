@@ -75,6 +75,9 @@ message BridgeInfo {
 
   // Current status of the bridge (e.g., "running", "pending", "error").
   string status = 6;
+
+  // The name of the bridge Deployment.
+  string deployment_name = 7 [json_name = "deployment_name"];
 }
 
 // ListBridgesResponse contains all active bridges matching the filter.
@@ -87,9 +90,8 @@ message DeleteBridgeRequest {
   // The device ID that owns the bridge.
   string device_id = 1 [json_name = "device_id"];
 
-  // The source deployment name to identify which bridge to delete.
-  // If empty, deletes the entire device namespace and all bridges within it.
-  string source_deployment = 2 [json_name = "source_deployment"];
+  // The name of the bridge to delete.
+  string name = 2;
 }
 
 // DeleteBridgeResponse is returned after a bridge is torn down.

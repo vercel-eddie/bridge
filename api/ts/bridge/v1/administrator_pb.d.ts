@@ -168,6 +168,13 @@ export declare type BridgeInfo = Message<"bridge.v1.BridgeInfo"> & {
    * @generated from field: string status = 6;
    */
   status: string;
+
+  /**
+   * The name of the bridge Deployment.
+   *
+   * @generated from field: string deployment_name = 7 [json_name = "deployment_name"];
+   */
+  deploymentName: string;
 };
 
 /**
@@ -208,12 +215,11 @@ export declare type DeleteBridgeRequest = Message<"bridge.v1.DeleteBridgeRequest
   deviceId: string;
 
   /**
-   * The source deployment name to identify which bridge to delete.
-   * If empty, deletes the entire device namespace and all bridges within it.
+   * The name of the bridge to delete.
    *
-   * @generated from field: string source_deployment = 2 [json_name = "source_deployment"];
+   * @generated from field: string name = 2;
    */
-  sourceDeployment: string;
+  name: string;
 };
 
 /**

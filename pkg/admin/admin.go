@@ -34,12 +34,12 @@ type CreateResponse struct {
 	EnvVars        map[string]string
 }
 
-// BridgeInfo describes an existing bridge.
+// BridgeInfo describes an existing bridge deployment.
 type BridgeInfo struct {
 	DeviceID         string
 	SourceDeployment string
 	SourceNamespace  string
 	Namespace        string
+	DeploymentName   string
 	CreatedAt        string
-	Status           string
 }

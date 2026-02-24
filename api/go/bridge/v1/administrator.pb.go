@@ -238,9 +238,11 @@ type BridgeInfo struct {
 	// When the bridge was created (RFC 3339).
 	CreatedAt string `protobuf:"bytes,5,opt,name=created_at,proto3" json:"created_at,omitempty"`
 	// Current status of the bridge (e.g., "running", "pending", "error").
-	Status        string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	// The name of the bridge Deployment.
+	DeploymentName string `protobuf:"bytes,7,opt,name=deployment_name,proto3" json:"deployment_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BridgeInfo) Reset() {
@@ -315,6 +317,13 @@ func (x *BridgeInfo) GetStatus() string {
 	return ""
 }
 
+func (x *BridgeInfo) GetDeploymentName() string {
+	if x != nil {
+		return x.DeploymentName
+	}
+	return ""
+}
+
 // ListBridgesResponse contains all active bridges matching the filter.
 type ListBridgesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -365,11 +374,10 @@ type DeleteBridgeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The device ID that owns the bridge.
 	DeviceId string `protobuf:"bytes,1,opt,name=device_id,proto3" json:"device_id,omitempty"`
-	// The source deployment name to identify which bridge to delete.
-	// If empty, deletes the entire device namespace and all bridges within it.
-	SourceDeployment string `protobuf:"bytes,2,opt,name=source_deployment,proto3" json:"source_deployment,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The name of the bridge to delete.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteBridgeRequest) Reset() {
@@ -409,9 +417,9 @@ func (x *DeleteBridgeRequest) GetDeviceId() string {
 	return ""
 }
 
-func (x *DeleteBridgeRequest) GetSourceDeployment() string {
+func (x *DeleteBridgeRequest) GetName() string {
 	if x != nil {
-		return x.SourceDeployment
+		return x.Name
 	}
 	return ""
 }
@@ -473,7 +481,7 @@ const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"2\n" +
 	"\x12ListBridgesRequest\x12\x1c\n" +
-	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\"\xda\x01\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\"\x84\x02\n" +
 	"\n" +
 	"BridgeInfo\x12\x1c\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12,\n" +
@@ -483,12 +491,13 @@ const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\n" +
 	"created_at\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\"F\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12(\n" +
+	"\x0fdeployment_name\x18\a \x01(\tR\x0fdeployment_name\"F\n" +
 	"\x13ListBridgesResponse\x12/\n" +
-	"\abridges\x18\x01 \x03(\v2\x15.bridge.v1.BridgeInfoR\abridges\"a\n" +
+	"\abridges\x18\x01 \x03(\v2\x15.bridge.v1.BridgeInfoR\abridges\"G\n" +
 	"\x13DeleteBridgeRequest\x12\x1c\n" +
-	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12,\n" +
-	"\x11source_deployment\x18\x02 \x01(\tR\x11source_deployment\"\x16\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x16\n" +
 	"\x14DeleteBridgeResponse2\x86\x02\n" +
 	"\x14AdministratorService\x12O\n" +
 	"\fCreateBridge\x12\x1e.bridge.v1.CreateBridgeRequest\x1a\x1f.bridge.v1.CreateBridgeResponse\x12L\n" +
