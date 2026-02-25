@@ -105,33 +105,12 @@ func (errAdminUnavailable) Error() string { return "administrator unavailable" }
 
 // preflightCreate runs pre-flight checks before the create command executes.
 func preflightCreate(ctx context.Context, c *cli.Command) (context.Context, error) {
-	if err := checkKubeconfig(); err != nil {
-		return ctx, err
-	}
 	if c.Bool("connect") {
 		if err := checkDocker(ctx); err != nil {
 			return ctx, err
 		}
 	}
 	return ctx, nil
-}
-
-// checkKubeconfig verifies that a kubeconfig file exists.
-func checkKubeconfig() error {
-	kubeconfigPath := os.Getenv("KUBECONFIG")
-	if kubeconfigPath == "" {
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			kubeconfigPath = filepath.Join(home, ".kube", "config")
-		}
-	}
-	if kubeconfigPath == "" {
-		return fmt.Errorf("no kubeconfig found: set the KUBECONFIG environment variable or create ~/.kube/config")
-	}
-	if _, err := os.Stat(kubeconfigPath); err != nil {
-		return fmt.Errorf("kubeconfig not found at %s: set the KUBECONFIG environment variable or run 'kubectl config view' to verify your setup", kubeconfigPath)
-	}
-	return nil
 }
 
 // checkDocker verifies that the Docker daemon is running.
@@ -422,77 +401,6 @@ func configureDevMounts(cfg *devcontainer.Config) error {
 		cfg.SetMount(fmt.Sprintf("source=%s,target=/usr/local/bin/bridge,type=bind,readonly", binPath))
 	}
 
-	// Mount KUBECONFIG unless the base config already configured it.
-	if _, exists := cfg.ContainerEnv["KUBECONFIG"]; !exists {
-		if err := configureKubeconfig(cfg); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// configureKubeconfig mounts a kubeconfig into the devcontainer. If any cluster
-// server URL points to localhost/0.0.0.0/127.0.0.1, it rewrites it to
-// host.docker.internal so it's reachable from inside the container.
-func configureKubeconfig(cfg *devcontainer.Config) error {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
-
-	rawConfig, err := kubeConfig.RawConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
-	}
-
-	// Resolve the kubeconfig file path for mounting.
-	kubeconfigPath := os.Getenv("KUBECONFIG")
-	if kubeconfigPath == "" {
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			kubeconfigPath = filepath.Join(home, ".kube", "config")
-		}
-	}
-
-	mountTarget := "/tmp/bridge-kubeconfig"
-
-	// Rewrite localhost URLs so they're reachable from inside Docker.
-	needsRewrite := false
-	for _, cluster := range rawConfig.Clusters {
-		for _, local := range []string{"://0.0.0.0:", "://127.0.0.1:", "://localhost:"} {
-			if strings.Contains(cluster.Server, local) {
-				cluster.Server = strings.Replace(cluster.Server, local, "://host.docker.internal:", 1)
-				cluster.InsecureSkipTLSVerify = true
-				cluster.CertificateAuthorityData = nil
-				needsRewrite = true
-				break
-			}
-		}
-	}
-
-	if needsRewrite {
-		rewritten, err := clientcmd.Write(rawConfig)
-		if err != nil {
-			return fmt.Errorf("failed to rewrite kubeconfig: %w", err)
-		}
-		tmpFile, err := os.CreateTemp("", "bridge-kubeconfig-*")
-		if err != nil {
-			return fmt.Errorf("failed to create temp kubeconfig: %w", err)
-		}
-		if _, err := tmpFile.Write(rewritten); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("failed to write temp kubeconfig: %w", err)
-		}
-		tmpFile.Close()
-		cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", tmpFile.Name(), mountTarget))
-	} else {
-		absPath, err := filepath.Abs(kubeconfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to resolve KUBECONFIG path: %w", err)
-		}
-		cfg.SetMount(fmt.Sprintf("source=%s,target=%s,type=bind,readonly", absPath, mountTarget))
-	}
-
-	cfg.EnsureContainerEnv("KUBECONFIG", mountTarget)
 	return nil
 }
 
