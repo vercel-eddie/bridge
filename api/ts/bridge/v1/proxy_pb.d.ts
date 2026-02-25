@@ -97,6 +97,86 @@ export declare type GetMetadataResponse = Message<"bridge.v1.GetMetadataResponse
 export declare const GetMetadataResponseSchema: GenMessage<GetMetadataResponse>;
 
 /**
+ * @generated from message bridge.v1.CopyFilesRequest
+ */
+export declare type CopyFilesRequest = Message<"bridge.v1.CopyFilesRequest"> & {
+  /**
+   * Absolute paths to read from the pod filesystem.
+   *
+   * @generated from field: repeated string paths = 1;
+   */
+  paths: string[];
+};
+
+/**
+ * Describes the message bridge.v1.CopyFilesRequest.
+ * Use `create(CopyFilesRequestSchema)` to create a new message.
+ */
+export declare const CopyFilesRequestSchema: GenMessage<CopyFilesRequest>;
+
+/**
+ * @generated from message bridge.v1.CopyFilesResponse
+ */
+export declare type CopyFilesResponse = Message<"bridge.v1.CopyFilesResponse"> & {
+  /**
+   * @generated from field: repeated bridge.v1.FileCopy files = 1;
+   */
+  files: FileCopy[];
+};
+
+/**
+ * Describes the message bridge.v1.CopyFilesResponse.
+ * Use `create(CopyFilesResponseSchema)` to create a new message.
+ */
+export declare const CopyFilesResponseSchema: GenMessage<CopyFilesResponse>;
+
+/**
+ * @generated from message bridge.v1.FileCopy
+ */
+export declare type FileCopy = Message<"bridge.v1.FileCopy"> & {
+  /**
+   * The absolute path of the file or directory.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * The raw file contents (empty for directories).
+   *
+   * @generated from field: bytes content = 2;
+   */
+  content: Uint8Array;
+
+  /**
+   * File permission mode (e.g. 0644).
+   *
+   * @generated from field: uint32 mode = 3;
+   */
+  mode: number;
+
+  /**
+   * Modification time as Unix seconds.
+   *
+   * @generated from field: int64 mod_time = 4;
+   */
+  modTime: bigint;
+
+  /**
+   * Error message if the file could not be read.
+   *
+   * @generated from field: string error = 5;
+   */
+  error: string;
+};
+
+/**
+ * Describes the message bridge.v1.FileCopy.
+ * Use `create(FileCopySchema)` to create a new message.
+ */
+export declare const FileCopySchema: GenMessage<FileCopy>;
+
+/**
  * @generated from message bridge.v1.TunnelNetworkMessage
  */
 export declare type TunnelNetworkMessage = Message<"bridge.v1.TunnelNetworkMessage"> & {
@@ -219,6 +299,17 @@ export declare const BridgeProxyService: GenService<{
     methodKind: "unary";
     input: typeof GetMetadataRequestSchema;
     output: typeof GetMetadataResponseSchema;
+  },
+  /**
+   * CopyFiles reads files from the bridge proxy pod and returns their contents
+   * along with metadata (timestamps, permissions).
+   *
+   * @generated from rpc bridge.v1.BridgeProxyService.CopyFiles
+   */
+  copyFiles: {
+    methodKind: "unary";
+    input: typeof CopyFilesRequestSchema;
+    output: typeof CopyFilesResponseSchema;
   },
 }>;
 

@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v3"
 	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
@@ -53,6 +55,10 @@ func Intercept() *cli.Command {
 				Usage: "DNS server listen port (default: 53)",
 				Value: 53,
 			},
+			&cli.StringSliceFlag{
+				Name:  "copy-files",
+				Usage: "File paths to copy from the bridge proxy into the devcontainer (also appends from $COPY_FILES)",
+			},
 		},
 		Action: runIntercept,
 	}
@@ -75,6 +81,17 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		}
 	}
 
+	// Parse copy-files from both the flag and the COPY_FILES env var, merging them.
+	var copyFiles []string
+	for _, src := range append(c.StringSlice("copy-files"), os.Getenv("COPY_FILES")) {
+		for _, part := range strings.Split(src, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				copyFiles = append(copyFiles, part)
+			}
+		}
+	}
+
 	if len(forwardDomains) > 0 {
 		slog.Info("Forward domains configured", "domains", forwardDomains)
 	} else {
@@ -91,6 +108,13 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 	}
 	defer conn.Close()
 	client := bridgev1.NewBridgeProxyServiceClient(conn)
+
+	// Copy files from the proxy pod if requested.
+	if len(copyFiles) > 0 {
+		if err := copyFilesFromProxy(ctx, client, copyFiles); err != nil {
+			slog.Warn("Failed to copy files from proxy", "error", err)
+		}
+	}
 
 	// Open the shared tunnel stream. If app-port is set, ingress traffic from
 	// the server's --listen-ports will be forwarded to that local port.
@@ -244,4 +268,44 @@ func (r *grpcDNSResolver) ResolveDNS(ctx context.Context, hostname string) (*bri
 		Addresses: resp.GetAddresses(),
 		Error:     resp.GetError(),
 	}, nil
+}
+
+// copyFilesFromProxy calls the CopyFiles RPC and writes each file to the local
+// filesystem at the same absolute path with relaxed permissions (0666/0777).
+func copyFilesFromProxy(ctx context.Context, client bridgev1.BridgeProxyServiceClient, paths []string) error {
+	slog.Info("Copying files from proxy pod", "paths", paths)
+
+	resp, err := client.CopyFiles(ctx, &bridgev1.CopyFilesRequest{Paths: paths})
+	if err != nil {
+		return fmt.Errorf("CopyFiles RPC: %w", err)
+	}
+
+	for _, f := range resp.GetFiles() {
+		if f.Error != "" {
+			slog.Warn("Failed to copy file", "path", f.Path, "error", f.Error)
+			continue
+		}
+
+		// Ensure parent directory exists.
+		if err := os.MkdirAll(filepath.Dir(f.Path), 0777); err != nil {
+			slog.Warn("Failed to create directory", "path", filepath.Dir(f.Path), "error", err)
+			continue
+		}
+
+		// Write with relaxed permissions so all users can access.
+		if err := os.WriteFile(f.Path, f.Content, 0666); err != nil {
+			slog.Warn("Failed to write file", "path", f.Path, "error", err)
+			continue
+		}
+
+		// Restore modification time.
+		if f.ModTime > 0 {
+			modTime := time.Unix(f.ModTime, 0)
+			os.Chtimes(f.Path, modTime, modTime)
+		}
+
+		slog.Info("Copied file", "path", f.Path, "size", len(f.Content))
+	}
+
+	return nil
 }

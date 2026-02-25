@@ -93,6 +93,13 @@ export declare type CreateBridgeResponse = Message<"bridge.v1.CreateBridgeRespon
    * @generated from field: map<string, string> env_vars = 5;
    */
   envVars: { [key: string]: string };
+
+  /**
+   * Absolute mount paths from the source deployment's application container.
+   *
+   * @generated from field: repeated string volume_mount_paths = 6;
+   */
+  volumeMountPaths: string[];
 };
 
 /**

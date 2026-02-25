@@ -29,6 +29,11 @@
       "type": "string",
       "description": "Comma-separated list of domain patterns to intercept and resolve through the tunnel (e.g., '*.vercel.app,example.com')",
       "default": ""
+    },
+    "copyFiles": {
+      "type": "string",
+      "description": "Comma-separated list of absolute file paths to copy from the bridge proxy pod into the devcontainer (e.g., '/etc/ssl/certs/ca-certificates.crt,/app/config.json')",
+      "default": ""
     }
   },
   "capAdd": [

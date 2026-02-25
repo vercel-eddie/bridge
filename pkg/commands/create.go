@@ -345,13 +345,17 @@ func generateDevcontainerConfig(p interact.Printer, baseConfigPath, featureRef s
 	if strings.HasPrefix(featureVersion, "edge-") {
 		featureVersion = "edge"
 	}
-	cfg.SetFeature(featureRef, map[string]any{
+	featureOpts := map[string]any{
 		"bridgeVersion":    featureVersion,
 		"bridgeServerAddr": bridgeServerAddr,
 		"forwardDomains":   "*",
 		"appPort":          fmt.Sprintf("%d", appPort),
 		"workspacePath":    "${containerWorkspaceFolder}",
-	})
+	}
+	if len(resp.VolumeMountPaths) > 0 {
+		featureOpts["copyFiles"] = strings.Join(resp.VolumeMountPaths, ",")
+	}
+	cfg.SetFeature(featureRef, featureOpts)
 	cfg.EnsureCapAdd("NET_ADMIN")
 
 	if err := configureDevMounts(cfg); err != nil {

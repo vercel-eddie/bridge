@@ -22,6 +22,10 @@ service BridgeProxyService {
   // GetMetadata returns metadata about the bridge proxy, including environment
   // variables from the pod that can be forwarded to the devcontainer.
   rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+
+  // CopyFiles reads files from the bridge proxy pod and returns their contents
+  // along with metadata (timestamps, permissions).
+  rpc CopyFiles(CopyFilesRequest) returns (CopyFilesResponse);
 }
 
 message ProxyResolveDNSRequest {
@@ -48,6 +52,32 @@ message GetMetadataRequest {}
 
 message GetMetadataResponse {
   map<string, string> env_vars = 1;
+}
+
+message CopyFilesRequest {
+  // Absolute paths to read from the pod filesystem.
+  repeated string paths = 1;
+}
+
+message CopyFilesResponse {
+  repeated FileCopy files = 1;
+}
+
+message FileCopy {
+  // The absolute path of the file or directory.
+  string path = 1;
+
+  // The raw file contents (empty for directories).
+  bytes content = 2;
+
+  // File permission mode (e.g. 0644).
+  uint32 mode = 3;
+
+  // Modification time as Unix seconds.
+  int64 mod_time = 4;
+
+  // Error message if the file could not be read.
+  string error = 5;
 }
 
 message TunnelNetworkMessage {

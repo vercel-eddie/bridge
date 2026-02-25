@@ -22,6 +22,7 @@ const (
 	BridgeProxyService_ResolveDNSQuery_FullMethodName = "/bridge.v1.BridgeProxyService/ResolveDNSQuery"
 	BridgeProxyService_TunnelNetwork_FullMethodName   = "/bridge.v1.BridgeProxyService/TunnelNetwork"
 	BridgeProxyService_GetMetadata_FullMethodName     = "/bridge.v1.BridgeProxyService/GetMetadata"
+	BridgeProxyService_CopyFiles_FullMethodName       = "/bridge.v1.BridgeProxyService/CopyFiles"
 )
 
 // BridgeProxyServiceClient is the client API for BridgeProxyService service.
@@ -46,6 +47,9 @@ type BridgeProxyServiceClient interface {
 	// GetMetadata returns metadata about the bridge proxy, including environment
 	// variables from the pod that can be forwarded to the devcontainer.
 	GetMetadata(ctx context.Context, in *GetMetadataRequest, opts ...grpc.CallOption) (*GetMetadataResponse, error)
+	// CopyFiles reads files from the bridge proxy pod and returns their contents
+	// along with metadata (timestamps, permissions).
+	CopyFiles(ctx context.Context, in *CopyFilesRequest, opts ...grpc.CallOption) (*CopyFilesResponse, error)
 }
 
 type bridgeProxyServiceClient struct {
@@ -89,6 +93,16 @@ func (c *bridgeProxyServiceClient) GetMetadata(ctx context.Context, in *GetMetad
 	return out, nil
 }
 
+func (c *bridgeProxyServiceClient) CopyFiles(ctx context.Context, in *CopyFilesRequest, opts ...grpc.CallOption) (*CopyFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CopyFilesResponse)
+	err := c.cc.Invoke(ctx, BridgeProxyService_CopyFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BridgeProxyServiceServer is the server API for BridgeProxyService service.
 // All implementations must embed UnimplementedBridgeProxyServiceServer
 // for forward compatibility.
@@ -111,6 +125,9 @@ type BridgeProxyServiceServer interface {
 	// GetMetadata returns metadata about the bridge proxy, including environment
 	// variables from the pod that can be forwarded to the devcontainer.
 	GetMetadata(context.Context, *GetMetadataRequest) (*GetMetadataResponse, error)
+	// CopyFiles reads files from the bridge proxy pod and returns their contents
+	// along with metadata (timestamps, permissions).
+	CopyFiles(context.Context, *CopyFilesRequest) (*CopyFilesResponse, error)
 	mustEmbedUnimplementedBridgeProxyServiceServer()
 }
 
@@ -129,6 +146,9 @@ func (UnimplementedBridgeProxyServiceServer) TunnelNetwork(grpc.BidiStreamingSer
 }
 func (UnimplementedBridgeProxyServiceServer) GetMetadata(context.Context, *GetMetadataRequest) (*GetMetadataResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMetadata not implemented")
+}
+func (UnimplementedBridgeProxyServiceServer) CopyFiles(context.Context, *CopyFilesRequest) (*CopyFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CopyFiles not implemented")
 }
 func (UnimplementedBridgeProxyServiceServer) mustEmbedUnimplementedBridgeProxyServiceServer() {}
 func (UnimplementedBridgeProxyServiceServer) testEmbeddedByValue()                            {}
@@ -194,6 +214,24 @@ func _BridgeProxyService_GetMetadata_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BridgeProxyService_CopyFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BridgeProxyServiceServer).CopyFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BridgeProxyService_CopyFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BridgeProxyServiceServer).CopyFiles(ctx, req.(*CopyFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BridgeProxyService_ServiceDesc is the grpc.ServiceDesc for BridgeProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -208,6 +246,10 @@ var BridgeProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMetadata",
 			Handler:    _BridgeProxyService_GetMetadata_Handler,
+		},
+		{
+			MethodName: "CopyFiles",
+			Handler:    _BridgeProxyService_CopyFiles_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

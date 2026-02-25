@@ -98,6 +98,7 @@ write_env_config() {
 export BRIDGE_SERVER_ADDR="${BRIDGESERVERADDR:-}"
 export APP_PORT="${APPPORT:-3000}"
 export FORWARD_DOMAINS="${FORWARDDOMAINS:-$FORWARD_DOMAINS}"
+export COPY_FILES="${COPYFILES:-$COPY_FILES}"
 EOF
 }
 
@@ -121,6 +122,7 @@ EOF
 if [ -n "$BRIDGE_SERVER_ADDR" ]; then
     sudo BRIDGE_SERVER_ADDR="$BRIDGE_SERVER_ADDR" \
          FORWARD_DOMAINS="$FORWARD_DOMAINS" \
+         COPY_FILES="$COPY_FILES" \
          KUBECONFIG="${KUBECONFIG:-}" \
          /usr/local/bin/bridge --log-path stderr intercept > /tmp/bridge-intercept.log 2>&1 &
 fi

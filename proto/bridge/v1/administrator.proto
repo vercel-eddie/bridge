@@ -48,6 +48,9 @@ message CreateBridgeResponse {
 
   // Environment variables resolved from the source deployment's pod spec.
   map<string, string> env_vars = 5;
+
+  // Absolute mount paths from the source deployment's application container.
+  repeated string volume_mount_paths = 6;
 }
 
 // ListBridgesRequest is sent to query active bridges.

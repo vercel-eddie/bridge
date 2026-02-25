@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -153,6 +154,58 @@ func (s *GRPCServer) GetMetadata(_ context.Context, _ *bridgev1.GetMetadataReque
 		}
 	}
 	return &bridgev1.GetMetadataResponse{EnvVars: envVars}, nil
+}
+
+// CopyFiles reads the requested files and directories from the local filesystem
+// and returns their contents along with metadata (permissions, modification time).
+// Directories are walked recursively.
+func (s *GRPCServer) CopyFiles(_ context.Context, req *bridgev1.CopyFilesRequest) (*bridgev1.CopyFilesResponse, error) {
+	var files []*bridgev1.FileCopy
+	for _, p := range req.GetPaths() {
+		info, err := os.Stat(p)
+		if err != nil {
+			files = append(files, &bridgev1.FileCopy{Path: p, Error: err.Error()})
+			continue
+		}
+
+		if !info.IsDir() {
+			files = append(files, readFileCopy(p, info))
+			continue
+		}
+
+		// Walk directory recursively, only emitting regular files.
+		err = filepath.Walk(p, func(path string, fi os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				files = append(files, &bridgev1.FileCopy{Path: path, Error: walkErr.Error()})
+				return nil
+			}
+			if fi.IsDir() {
+				return nil
+			}
+			files = append(files, readFileCopy(path, fi))
+			return nil
+		})
+		if err != nil {
+			files = append(files, &bridgev1.FileCopy{Path: p, Error: err.Error()})
+		}
+	}
+	return &bridgev1.CopyFilesResponse{Files: files}, nil
+}
+
+// readFileCopy reads a single file and returns a FileCopy proto message.
+func readFileCopy(path string, info os.FileInfo) *bridgev1.FileCopy {
+	fc := &bridgev1.FileCopy{
+		Path:    path,
+		Mode:    uint32(info.Mode().Perm()),
+		ModTime: info.ModTime().Unix(),
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fc.Error = err.Error()
+		return fc
+	}
+	fc.Content = data
+	return fc
 }
 
 // TunnelNetwork handles the single bidirectional tunnel stream. All egress and

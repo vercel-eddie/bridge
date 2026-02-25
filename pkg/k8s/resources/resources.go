@@ -73,6 +73,8 @@ type CopyResult struct {
 	DeploymentName string
 	// PodPort is the port the bridge proxy is listening on.
 	PodPort int32
+	// VolumeMountPaths are the absolute mount paths from the source application container.
+	VolumeMountPaths []string
 }
 
 // CopyAndTransform reads a source Deployment, extracts its config dependencies
@@ -179,11 +181,15 @@ func CreateInNamespace(ctx context.Context, client kubernetes.Interface, cfg InN
 	deployName := identity.BridgeResourceName(cfg.DeviceID, srcDeploy.Name)
 	ns := cfg.SourceNamespace
 
-	// Collect all ports from the source deployment's first container.
+	// Collect ports and volume mount paths from the source deployment's first container.
 	var appPorts []int32
+	var volumeMountPaths []string
 	if containers := srcDeploy.Spec.Template.Spec.Containers; len(containers) > 0 {
 		for _, p := range containers[0].Ports {
 			appPorts = append(appPorts, p.ContainerPort)
+		}
+		for _, vm := range containers[0].VolumeMounts {
+			volumeMountPaths = append(volumeMountPaths, vm.MountPath)
 		}
 	}
 
@@ -301,8 +307,9 @@ func CreateInNamespace(ctx context.Context, client kubernetes.Interface, cfg InN
 	}
 
 	return &CopyResult{
-		DeploymentName: deployName,
-		PodPort:        grpcPort,
+		DeploymentName:   deployName,
+		PodPort:          grpcPort,
+		VolumeMountPaths: volumeMountPaths,
 	}, nil
 }
 

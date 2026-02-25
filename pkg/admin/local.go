@@ -158,11 +158,12 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 	}
 
 	return &bridgev1.CreateBridgeResponse{
-		Namespace:      targetNS,
-		PodName:        podName,
-		Port:           result.PodPort,
-		DeploymentName: result.DeploymentName,
-		EnvVars:        envVars,
+		Namespace:        targetNS,
+		PodName:          podName,
+		Port:             result.PodPort,
+		DeploymentName:   result.DeploymentName,
+		EnvVars:          envVars,
+		VolumeMountPaths: result.VolumeMountPaths,
 	}, nil
 }
 
