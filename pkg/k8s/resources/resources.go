@@ -303,7 +303,7 @@ func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, de
 
 	// Copy each Secret to the target namespace with a prefixed name.
 	for _, ref := range secretRefs {
-		src, err := client.CoreV1().Secrets(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
+		secret, err := client.CoreV1().Secrets(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
 		if err != nil {
 			if ref.optional {
 				slog.Debug("Skipping optional secret", "name", ref.name, "namespace", srcNS)
@@ -313,19 +313,25 @@ func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, de
 		}
 		dstName := prefix + ref.name
 		nameMap[ref.name] = dstName
-		dst := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: dstName, Namespace: targetNS, Labels: ownerLabels},
-			Type:       src.Type,
-			Data:       src.Data,
+		secret.Name = dstName
+		secret.Namespace = targetNS
+		secret.ResourceVersion = ""
+		secret.UID = ""
+		secret.CreationTimestamp = metav1.Time{}
+		for k, v := range ownerLabels {
+			if secret.Labels == nil {
+				secret.Labels = make(map[string]string)
+			}
+			secret.Labels[k] = v
 		}
-		if err := createOrUpdate(ctx, client, targetNS, dst); err != nil {
+		if err := upsertSecret(ctx, client, targetNS, secret); err != nil {
 			return nil, fmt.Errorf("failed to copy secret %s: %w", ref.name, err)
 		}
 	}
 
 	// Copy each ConfigMap to the target namespace with a prefixed name.
 	for _, ref := range configMapRefs {
-		src, err := client.CoreV1().ConfigMaps(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
+		cm, err := client.CoreV1().ConfigMaps(srcNS).Get(ctx, ref.name, metav1.GetOptions{})
 		if err != nil {
 			if ref.optional {
 				slog.Debug("Skipping optional configmap", "name", ref.name, "namespace", srcNS)
@@ -335,11 +341,18 @@ func copyConfigDependencies(ctx context.Context, client kubernetes.Interface, de
 		}
 		dstName := prefix + ref.name
 		nameMap[ref.name] = dstName
-		dst := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: dstName, Namespace: targetNS, Labels: ownerLabels},
-			Data:       src.Data,
+		cm.Name = dstName
+		cm.Namespace = targetNS
+		cm.ResourceVersion = ""
+		cm.UID = ""
+		cm.CreationTimestamp = metav1.Time{}
+		if cm.Labels == nil {
+			cm.Labels = make(map[string]string)
 		}
-		if err := createOrUpdateConfigMap(ctx, client, targetNS, dst); err != nil {
+		for k, v := range ownerLabels {
+			cm.Labels[k] = v
+		}
+		if err := upsertConfigMap(ctx, client, targetNS, cm); err != nil {
 			return nil, fmt.Errorf("failed to copy configmap %s: %w", ref.name, err)
 		}
 	}
@@ -533,7 +546,7 @@ func ensureService(ctx context.Context, client kubernetes.Interface, namespace, 
 	return err
 }
 
-func createOrUpdate(ctx context.Context, client kubernetes.Interface, ns string, secret *corev1.Secret) error {
+func upsertSecret(ctx context.Context, client kubernetes.Interface, ns string, secret *corev1.Secret) error {
 	existing, err := client.CoreV1().Secrets(ns).Get(ctx, secret.Name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		_, err = client.CoreV1().Secrets(ns).Create(ctx, secret, metav1.CreateOptions{})
@@ -541,12 +554,12 @@ func createOrUpdate(ctx context.Context, client kubernetes.Interface, ns string,
 	} else if err != nil {
 		return err
 	}
-	existing.Data = secret.Data
-	_, err = client.CoreV1().Secrets(ns).Update(ctx, existing, metav1.UpdateOptions{})
+	secret.ResourceVersion = existing.ResourceVersion
+	_, err = client.CoreV1().Secrets(ns).Update(ctx, secret, metav1.UpdateOptions{})
 	return err
 }
 
-func createOrUpdateConfigMap(ctx context.Context, client kubernetes.Interface, ns string, cm *corev1.ConfigMap) error {
+func upsertConfigMap(ctx context.Context, client kubernetes.Interface, ns string, cm *corev1.ConfigMap) error {
 	existing, err := client.CoreV1().ConfigMaps(ns).Get(ctx, cm.Name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		_, err = client.CoreV1().ConfigMaps(ns).Create(ctx, cm, metav1.CreateOptions{})
@@ -554,43 +567,39 @@ func createOrUpdateConfigMap(ctx context.Context, client kubernetes.Interface, n
 	} else if err != nil {
 		return err
 	}
-	existing.Data = cm.Data
-	_, err = client.CoreV1().ConfigMaps(ns).Update(ctx, existing, metav1.UpdateOptions{})
+	cm.ResourceVersion = existing.ResourceVersion
+	_, err = client.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{})
 	return err
 }
 
 // copyServiceAccount copies a ServiceAccount from the source namespace into
-// the target namespace with a deployment-scoped prefix. Annotations (e.g. IRSA
-// role ARN) are preserved so the pod retains the same workload identity.
+// the target namespace with a deployment-scoped prefix.
 func copyServiceAccount(ctx context.Context, client kubernetes.Interface, srcNS, targetNS, saName, deployName string) error {
-	src, err := client.CoreV1().ServiceAccounts(srcNS).Get(ctx, saName, metav1.GetOptions{})
+	sa, err := client.CoreV1().ServiceAccounts(srcNS).Get(ctx, saName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get service account %s/%s: %w", srcNS, saName, err)
 	}
 
-	dstName := deployName + "-" + saName
-	dst := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      dstName,
-			Namespace: targetNS,
-			Labels: map[string]string{
-				meta.LabelBridgeType:       meta.BridgeTypeProxy,
-				meta.LabelBridgeDeployment: deployName,
-			},
-			Annotations: src.Annotations,
-		},
+	sa.Name = deployName + "-" + saName
+	sa.Namespace = targetNS
+	sa.ResourceVersion = ""
+	sa.UID = ""
+	sa.CreationTimestamp = metav1.Time{}
+	if sa.Labels == nil {
+		sa.Labels = make(map[string]string)
 	}
+	sa.Labels[meta.LabelBridgeType] = meta.BridgeTypeProxy
+	sa.Labels[meta.LabelBridgeDeployment] = deployName
 
-	existing, err := client.CoreV1().ServiceAccounts(targetNS).Get(ctx, dstName, metav1.GetOptions{})
+	existing, err := client.CoreV1().ServiceAccounts(targetNS).Get(ctx, sa.Name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		_, err = client.CoreV1().ServiceAccounts(targetNS).Create(ctx, dst, metav1.CreateOptions{})
+		_, err = client.CoreV1().ServiceAccounts(targetNS).Create(ctx, sa, metav1.CreateOptions{})
 		return err
 	} else if err != nil {
 		return err
 	}
-	existing.Annotations = dst.Annotations
-	existing.Labels = dst.Labels
-	_, err = client.CoreV1().ServiceAccounts(targetNS).Update(ctx, existing, metav1.UpdateOptions{})
+	sa.ResourceVersion = existing.ResourceVersion
+	_, err = client.CoreV1().ServiceAccounts(targetNS).Update(ctx, sa, metav1.UpdateOptions{})
 	return err
 }
 
