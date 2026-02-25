@@ -74,7 +74,7 @@ func Setup(level slog.Level, logPaths []string) (cleanup func(), err error) {
 		closers = append(closers, logFile)
 	}
 
-	// Add any extra destinations from --log-path.
+	// Add any extra destinations from --log-paths.
 	for _, p := range logPaths {
 		switch p {
 		case "stdout":

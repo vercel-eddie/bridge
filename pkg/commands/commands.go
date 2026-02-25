@@ -26,14 +26,14 @@ func NewApp() *cli.Command {
 				Sources: cli.EnvVars("LOG_LEVEL"),
 			},
 			&cli.StringSliceFlag{
-				Name:    "log-path",
+				Name:    "log-paths",
 				Usage:   "Additional log destinations: \"stdout\", \"stderr\", or a file path (repeatable)",
-				Sources: cli.EnvVars("LOG_PATH"),
+				Sources: cli.EnvVars("LOG_PATHS"),
 			},
 		},
 		Before: func(ctx context.Context, command *cli.Command) (context.Context, error) {
 			level := parseLogLevel(command.String("log-level"))
-			logPaths := command.StringSlice("log-path")
+			logPaths := command.StringSlice("log-paths")
 			cleanup, err := logging.Setup(level, logPaths)
 			if err != nil {
 				slog.Warn("Failed to set up log file", "error", err)

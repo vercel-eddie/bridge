@@ -210,7 +210,7 @@ func CreateInNamespace(ctx context.Context, client kubernetes.Interface, cfg InN
 	// Swap the first (primary app) container for the bridge proxy.
 	if containers := srcDeploy.Spec.Template.Spec.Containers; len(containers) > 0 {
 		c := &containers[0]
-		args := []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
+		args := []string{"bridge", "--log-paths", "stdout", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
 		if len(appPorts) > 0 {
 			var specs []string
 			for _, p := range appPorts {

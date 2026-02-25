@@ -118,13 +118,17 @@ EOF
 # Source profile in case env vars aren't inherited
 [ -f /etc/profile.d/bridge.sh ] && source /etc/profile.d/bridge.sh
 
+# Unset IRSA env vars so the AWS SDK doesn't attempt token-file auth
+# (the token file doesn't exist outside the cluster pod).
+unset AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE
+
 # Run bridge intercept as root (required for iptables)
 if [ -n "$BRIDGE_SERVER_ADDR" ]; then
     sudo BRIDGE_SERVER_ADDR="$BRIDGE_SERVER_ADDR" \
          FORWARD_DOMAINS="$FORWARD_DOMAINS" \
          COPY_FILES="$COPY_FILES" \
          KUBECONFIG="${KUBECONFIG:-}" \
-         /usr/local/bin/bridge --log-path stderr intercept > /tmp/bridge-intercept.log 2>&1 &
+         /usr/local/bin/bridge --log-paths stderr intercept > /tmp/bridge-intercept.log 2>&1 &
 fi
 
 exec "$@"
