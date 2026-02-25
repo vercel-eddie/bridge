@@ -8,19 +8,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/vercel/bridge/api/go/bridge/v1"
+	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
 	"github.com/vercel/bridge/pkg/k8s/k8spf"
 )
 
-// remoteAdmin implements Admin by calling the in-cluster administrator via gRPC.
+// remoteAdmin implements Service by calling the in-cluster administrator via gRPC.
 type remoteAdmin struct {
 	conn   *grpc.ClientConn
-	client pb.AdministratorServiceClient
+	client bridgev1.AdministratorServiceClient
 }
 
-// NewRemote creates a remote Admin that connects to the administrator gRPC
+// NewClient creates a remote Service that connects to the administrator gRPC
 // server at the given address (e.g. "k8spf:///administrator.bridge:9090").
-func NewRemote(addr string) (Admin, error) {
+func NewClient(addr string) (Service, error) {
 	builder := k8spf.NewBuilder(k8spf.BuilderConfig{})
 	conn, err := grpc.NewClient(addr,
 		append(builder.DialOptions(), grpc.WithTransportCredentials(insecure.NewCredentials()))...,
@@ -30,50 +30,35 @@ func NewRemote(addr string) (Admin, error) {
 	}
 	return &remoteAdmin{
 		conn:   conn,
-		client: pb.NewAdministratorServiceClient(conn),
+		client: bridgev1.NewAdministratorServiceClient(conn),
 	}, nil
 }
 
-func (r *remoteAdmin) CreateBridge(ctx context.Context, req CreateRequest) (*CreateResponse, error) {
-	resp, err := r.client.CreateBridge(ctx, &pb.CreateBridgeRequest{
-		DeviceId:         req.DeviceID,
-		SourceDeployment: req.SourceDeployment,
-		SourceNamespace:  req.SourceNamespace,
-		Force:            req.Force,
-	})
+func (r *remoteAdmin) CreateBridge(ctx context.Context, req *bridgev1.CreateBridgeRequest) (*bridgev1.CreateBridgeResponse, error) {
+	resp, err := r.client.CreateBridge(ctx, req)
 	if err != nil {
 		return nil, userError(err)
 	}
-	return &CreateResponse{
-		Namespace:      resp.Namespace,
-		PodName:        resp.PodName,
-		Port:           resp.Port,
-		DeploymentName: resp.DeploymentName,
-		EnvVars:        resp.EnvVars,
-	}, nil
+	return resp, nil
 }
 
-func (r *remoteAdmin) ListBridges(ctx context.Context, deviceID string) ([]*BridgeInfo, error) {
-	resp, err := r.client.ListBridges(ctx, &pb.ListBridgesRequest{
-		DeviceId: deviceID,
-	})
+func (r *remoteAdmin) ListBridges(ctx context.Context, req *bridgev1.ListBridgesRequest) (*bridgev1.ListBridgesResponse, error) {
+	resp, err := r.client.ListBridges(ctx, req)
 	if err != nil {
 		return nil, userError(err)
 	}
-	bridges := make([]*BridgeInfo, len(resp.Bridges))
-	for i, b := range resp.Bridges {
-		bridges[i] = &BridgeInfo{
-			DeviceID:         b.DeviceId,
-			SourceDeployment: b.SourceDeployment,
-			SourceNamespace:  b.SourceNamespace,
-			Namespace:        b.Namespace,
-			DeploymentName:   b.DeploymentName,
-			CreatedAt:        b.CreatedAt,
-		}
-	}
-	return bridges, nil
+	return resp, nil
 }
 
+func (r *remoteAdmin) DeleteBridge(ctx context.Context, req *bridgev1.DeleteBridgeRequest) (*bridgev1.DeleteBridgeResponse, error) {
+	resp, err := r.client.DeleteBridge(ctx, req)
+	if err != nil {
+		return nil, userError(err)
+	}
+	return resp, nil
+}
+
+// Close releases the gRPC connection.
 func (r *remoteAdmin) Close() error {
 	if r.conn != nil {
 		return r.conn.Close()

@@ -30,12 +30,12 @@ const (
 //
 // AdministratorService manages bridge lifecycle in a Kubernetes cluster.
 type AdministratorServiceClient interface {
-	// CreateBridge provisions a new bridge by cloning a source deployment's config
-	// into a dedicated namespace, swapping the application container for the bridge proxy.
+	// CreateBridge provisions a new bridge in the source deployment's namespace,
+	// swapping the application container for the bridge proxy.
 	CreateBridge(ctx context.Context, in *CreateBridgeRequest, opts ...grpc.CallOption) (*CreateBridgeResponse, error)
-	// ListBridges returns all active bridges, optionally filtered by device ID.
+	// ListBridges returns all active bridges for a device across all namespaces.
 	ListBridges(ctx context.Context, in *ListBridgesRequest, opts ...grpc.CallOption) (*ListBridgesResponse, error)
-	// DeleteBridge tears down a specific bridge, removing all resources and the namespace.
+	// DeleteBridge tears down a specific bridge and its associated resources.
 	DeleteBridge(ctx context.Context, in *DeleteBridgeRequest, opts ...grpc.CallOption) (*DeleteBridgeResponse, error)
 }
 
@@ -83,12 +83,12 @@ func (c *administratorServiceClient) DeleteBridge(ctx context.Context, in *Delet
 //
 // AdministratorService manages bridge lifecycle in a Kubernetes cluster.
 type AdministratorServiceServer interface {
-	// CreateBridge provisions a new bridge by cloning a source deployment's config
-	// into a dedicated namespace, swapping the application container for the bridge proxy.
+	// CreateBridge provisions a new bridge in the source deployment's namespace,
+	// swapping the application container for the bridge proxy.
 	CreateBridge(context.Context, *CreateBridgeRequest) (*CreateBridgeResponse, error)
-	// ListBridges returns all active bridges, optionally filtered by device ID.
+	// ListBridges returns all active bridges for a device across all namespaces.
 	ListBridges(context.Context, *ListBridgesRequest) (*ListBridgesResponse, error)
-	// DeleteBridge tears down a specific bridge, removing all resources and the namespace.
+	// DeleteBridge tears down a specific bridge and its associated resources.
 	DeleteBridge(context.Context, *DeleteBridgeRequest) (*DeleteBridgeResponse, error)
 	mustEmbedUnimplementedAdministratorServiceServer()
 }

@@ -99,7 +99,7 @@ func (x *CreateBridgeRequest) GetForce() bool {
 // CreateBridgeResponse is returned by the Administrator after a bridge is provisioned.
 type CreateBridgeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The namespace where the bridged pod was created (bridge-<device-id>).
+	// The namespace where the bridge resources were created (same as the source namespace).
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	// The name of the bridged pod.
 	PodName string `protobuf:"bytes,2,opt,name=pod_name,proto3" json:"pod_name,omitempty"`
@@ -375,7 +375,9 @@ type DeleteBridgeRequest struct {
 	// The device ID that owns the bridge.
 	DeviceId string `protobuf:"bytes,1,opt,name=device_id,proto3" json:"device_id,omitempty"`
 	// The name of the bridge to delete.
-	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// The namespace containing the bridge resources.
+	Namespace     string `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -420,6 +422,13 @@ func (x *DeleteBridgeRequest) GetDeviceId() string {
 func (x *DeleteBridgeRequest) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *DeleteBridgeRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
 	}
 	return ""
 }
@@ -494,10 +503,11 @@ const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x12(\n" +
 	"\x0fdeployment_name\x18\a \x01(\tR\x0fdeployment_name\"F\n" +
 	"\x13ListBridgesResponse\x12/\n" +
-	"\abridges\x18\x01 \x03(\v2\x15.bridge.v1.BridgeInfoR\abridges\"G\n" +
+	"\abridges\x18\x01 \x03(\v2\x15.bridge.v1.BridgeInfoR\abridges\"e\n" +
 	"\x13DeleteBridgeRequest\x12\x1c\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\x16\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
+	"\tnamespace\x18\x03 \x01(\tR\tnamespace\"\x16\n" +
 	"\x14DeleteBridgeResponse2\x86\x02\n" +
 	"\x14AdministratorService\x12O\n" +
 	"\fCreateBridge\x12\x1e.bridge.v1.CreateBridgeRequest\x1a\x1f.bridge.v1.CreateBridgeResponse\x12L\n" +

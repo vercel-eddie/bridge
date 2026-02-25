@@ -33,3 +33,9 @@ const (
 func DeploymentSelector(deployName string) string {
 	return LabelBridgeDeployment + "=" + deployName
 }
+
+// DeviceSelector returns a label selector matching all bridge proxy resources
+// belonging to a specific device.
+func DeviceSelector(deviceID string) string {
+	return LabelBridgeType + "=" + BridgeTypeProxy + "," + LabelDeviceID + "=" + deviceID
+}

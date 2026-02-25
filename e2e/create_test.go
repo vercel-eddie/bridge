@@ -212,15 +212,17 @@ func (s *CreateSuite) TestFullstackCreate() {
 
 	// --- Wait for intercept readiness via devcontainer exec ---
 
+	deviceID, _ := identity.GetDeviceID()
+	bridgeName := identity.BridgeResourceName(deviceID, testutil.UserserviceName)
+
 	generatedConfig := filepath.Join(s.workspaceDir, ".devcontainer",
-		fmt.Sprintf("bridge-%s", testutil.UserserviceName), "devcontainer.json")
+		fmt.Sprintf("bridge-%s", bridgeName), "devcontainer.json")
 	dcExec := &devcontainer.Client{
 		WorkspaceFolder: s.workspaceDir,
 		ConfigPath:      generatedConfig,
 	}
 
-	deviceID, _ := identity.GetDeviceID()
-	bridgeNS := identity.NamespaceForDevice(deviceID)
+	bridgeNS := testutil.UserserviceNamespace
 
 	s.Eventually(func() bool {
 		// Check if the goroutine already failed.

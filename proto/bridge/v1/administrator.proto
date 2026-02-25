@@ -4,14 +4,14 @@ package bridge.v1;
 
 // AdministratorService manages bridge lifecycle in a Kubernetes cluster.
 service AdministratorService {
-  // CreateBridge provisions a new bridge by cloning a source deployment's config
-  // into a dedicated namespace, swapping the application container for the bridge proxy.
+  // CreateBridge provisions a new bridge in the source deployment's namespace,
+  // swapping the application container for the bridge proxy.
   rpc CreateBridge(CreateBridgeRequest) returns (CreateBridgeResponse);
 
-  // ListBridges returns all active bridges, optionally filtered by device ID.
+  // ListBridges returns all active bridges for a device across all namespaces.
   rpc ListBridges(ListBridgesRequest) returns (ListBridgesResponse);
 
-  // DeleteBridge tears down a specific bridge, removing all resources and the namespace.
+  // DeleteBridge tears down a specific bridge and its associated resources.
   rpc DeleteBridge(DeleteBridgeRequest) returns (DeleteBridgeResponse);
 }
 
@@ -34,7 +34,7 @@ message CreateBridgeRequest {
 
 // CreateBridgeResponse is returned by the Administrator after a bridge is provisioned.
 message CreateBridgeResponse {
-  // The namespace where the bridged pod was created (bridge-<device-id>).
+  // The namespace where the bridge resources were created (same as the source namespace).
   string namespace = 1;
 
   // The name of the bridged pod.
@@ -92,6 +92,9 @@ message DeleteBridgeRequest {
 
   // The name of the bridge to delete.
   string name = 2;
+
+  // The namespace containing the bridge resources.
+  string namespace = 3;
 }
 
 // DeleteBridgeResponse is returned after a bridge is torn down.

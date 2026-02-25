@@ -60,7 +60,7 @@ export declare const CreateBridgeRequestSchema: GenMessage<CreateBridgeRequest>;
  */
 export declare type CreateBridgeResponse = Message<"bridge.v1.CreateBridgeResponse"> & {
   /**
-   * The namespace where the bridged pod was created (bridge-<device-id>).
+   * The namespace where the bridge resources were created (same as the source namespace).
    *
    * @generated from field: string namespace = 1;
    */
@@ -220,6 +220,13 @@ export declare type DeleteBridgeRequest = Message<"bridge.v1.DeleteBridgeRequest
    * @generated from field: string name = 2;
    */
   name: string;
+
+  /**
+   * The namespace containing the bridge resources.
+   *
+   * @generated from field: string namespace = 3;
+   */
+  namespace: string;
 };
 
 /**
@@ -249,8 +256,8 @@ export declare const DeleteBridgeResponseSchema: GenMessage<DeleteBridgeResponse
  */
 export declare const AdministratorService: GenService<{
   /**
-   * CreateBridge provisions a new bridge by cloning a source deployment's config
-   * into a dedicated namespace, swapping the application container for the bridge proxy.
+   * CreateBridge provisions a new bridge in the source deployment's namespace,
+   * swapping the application container for the bridge proxy.
    *
    * @generated from rpc bridge.v1.AdministratorService.CreateBridge
    */
@@ -260,7 +267,7 @@ export declare const AdministratorService: GenService<{
     output: typeof CreateBridgeResponseSchema;
   },
   /**
-   * ListBridges returns all active bridges, optionally filtered by device ID.
+   * ListBridges returns all active bridges for a device across all namespaces.
    *
    * @generated from rpc bridge.v1.AdministratorService.ListBridges
    */
@@ -270,7 +277,7 @@ export declare const AdministratorService: GenService<{
     output: typeof ListBridgesResponseSchema;
   },
   /**
-   * DeleteBridge tears down a specific bridge, removing all resources and the namespace.
+   * DeleteBridge tears down a specific bridge and its associated resources.
    *
    * @generated from rpc bridge.v1.AdministratorService.DeleteBridge
    */

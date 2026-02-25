@@ -43,15 +43,15 @@ main() {
     curl -fsSL -o bridge "${download_url}"
     chmod +x bridge
 
-    if [ "$os" = "darwin" ]; then
-        # Remove macOS quarantine attribute to prevent Gatekeeper prompts
-        xattr -d com.apple.quarantine bridge 2>/dev/null || true
-    fi
-
     if [ -w "$INSTALL_DIR" ]; then
         mv bridge "${INSTALL_DIR}/bridge"
     else
         sudo mv bridge "${INSTALL_DIR}/bridge"
+    fi
+
+    if [ "$os" = "darwin" ]; then
+        # Remove macOS quarantine attribute to prevent Gatekeeper killing the binary
+        sudo xattr -d com.apple.quarantine "${INSTALL_DIR}/bridge" 2>/dev/null || true
     fi
 
     echo "bridge (edge) installed to ${INSTALL_DIR}/bridge"

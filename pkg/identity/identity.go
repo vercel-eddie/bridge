@@ -76,14 +76,24 @@ func GetDeviceID() (string, error) {
 	return id, nil
 }
 
-// NamespaceForDevice returns the Kubernetes namespace name for a given device ID.
-// It uses a short prefix of the device ID for readability while remaining unique.
-func NamespaceForDevice(deviceID string) string {
-	short := deviceID
-	if len(short) > 6 {
-		short = short[:6]
+// ShortDeviceID returns the first 6 characters of a device KSUID.
+func ShortDeviceID(deviceID string) string {
+	if len(deviceID) > 6 {
+		return deviceID[:6]
 	}
-	return "bridge-" + short
+	return deviceID
+}
+
+// BridgeResourceName returns the canonical name for a bridge resource:
+// <name>-<short-device-id>.
+func BridgeResourceName(deviceID, name string) string {
+	return name + "-" + ShortDeviceID(deviceID)
+}
+
+// NamespaceForDevice returns the Kubernetes namespace name for a given device ID.
+// Deprecated: bridge resources are now created in the source namespace.
+func NamespaceForDevice(deviceID string) string {
+	return "bridge-" + ShortDeviceID(deviceID)
 }
 
 func deviceIDPath() (string, error) {

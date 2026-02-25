@@ -16,6 +16,7 @@ import (
 	"github.com/urfave/cli/v3"
 	"k8s.io/client-go/tools/clientcmd"
 
+	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
 	"github.com/vercel/bridge/pkg/admin"
 	"github.com/vercel/bridge/pkg/devcontainer"
 	"github.com/vercel/bridge/pkg/identity"
@@ -26,7 +27,7 @@ const defaultFeatureRef = "ghcr.io/vercel/bridge/bridge-feature:latest"
 const devFeatureRef = "../local-features/bridge-feature"
 
 const defaultAdminAddr = "k8spf:///administrator.bridge:9090?workload=deployment"
-const defaultProxyImage = "ghcr.io/vercel/bridge-cli:edge"
+const defaultProxyImage = "ghcr.io/vercel/bridge-cli:latest"
 
 // Create returns the CLI command for creating a bridge.
 func Create() *cli.Command {
@@ -172,22 +173,24 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 	kubeContext := currentKubeContext()
 
 	// Step 2: Connect to administrator (remote, with local fallback).
-	var adm admin.Admin
-	var existingBridges []*admin.BridgeInfo
+	var adm admin.Service
+	var existingBridges []*bridgev1.BridgeInfo
+
+	listReq := &bridgev1.ListBridgesRequest{DeviceId: deviceID}
 
 	sp := interact.NewSpinner("Connecting to bridge administrator...")
 	go sp.Start(ctx)
 
-	remote, dialErr := admin.NewRemote(adminAddr)
+	remote, dialErr := admin.NewClient(adminAddr)
 	if dialErr == nil {
 		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		bridges, probeErr := remote.ListBridges(probeCtx, deviceID)
+		listResp, probeErr := remote.ListBridges(probeCtx, listReq)
 		cancel()
 		if probeErr == nil {
-			existingBridges = bridges
+			existingBridges = listResp.Bridges
 			adm = remote
-		} else {
-			remote.Close()
+		} else if closer, ok := remote.(io.Closer); ok {
+			closer.Close()
 		}
 	}
 	sp.Stop()
@@ -209,7 +212,7 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 		sp = interact.NewSpinner("Initializing local administrator...")
 		go sp.Start(ctx)
 
-		localAdm, localErr := admin.NewLocal(admin.LocalConfig{
+		localAdm, localErr := admin.NewService(admin.LocalConfig{
 			ProxyImage: proxyImage,
 		})
 		if localErr != nil {
@@ -217,20 +220,24 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 			return fmt.Errorf("failed to initialize: %w", localErr)
 		}
 		adm = localAdm
-		bridges, listErr := localAdm.ListBridges(ctx, deviceID)
+		listResp, listErr := localAdm.ListBridges(ctx, listReq)
 		if listErr != nil {
 			slog.Warn("Failed to list existing bridges", "error", listErr)
 		} else {
-			existingBridges = bridges
+			existingBridges = listResp.Bridges
 		}
 
 		sp.Stop()
 	}
-	defer adm.Close()
+	defer func() {
+		if closer, ok := adm.(io.Closer); ok {
+			closer.Close()
+		}
+	}()
 
 	// Step 3: Check for existing bridges.
 	// Compute the expected bridge deployment name so we can match by name.
-	expectedName := deploymentName
+	expectedName := identity.BridgeResourceName(deviceID, deploymentName)
 	if !yes {
 		for _, bridge := range existingBridges {
 			if bridge.DeploymentName == expectedName {
@@ -254,13 +261,11 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Step 4: Create bridge.
-	var createResp *admin.CreateResponse
-
 	sp = interact.NewSpinner("Creating bridge...")
 	go sp.Start(ctx)
 
-	createResp, err = adm.CreateBridge(ctx, admin.CreateRequest{
-		DeviceID:         deviceID,
+	createResp, err := adm.CreateBridge(ctx, &bridgev1.CreateBridgeRequest{
+		DeviceId:         deviceID,
 		SourceDeployment: deploymentName,
 		SourceNamespace:  sourceNamespace,
 		Force:            yes,
@@ -305,7 +310,7 @@ func promptYN(r io.Reader) string {
 // It respects the KUBECONFIG env var by bind-mounting it into the container,
 // unless the base config already sets containerEnv.KUBECONFIG.
 // Returns the path to the generated config.
-func generateDevcontainerConfig(p interact.Printer, baseConfigPath, featureRef string, appPort int, resp *admin.CreateResponse) (string, error) {
+func generateDevcontainerConfig(p interact.Printer, baseConfigPath, featureRef string, appPort int, resp *bridgev1.CreateBridgeResponse) (string, error) {
 	dcName := resp.DeploymentName
 
 	// Place the generated config under the .devcontainer/ directory that contains

@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"strings"
 
+	"github.com/vercel/bridge/pkg/identity"
 	"github.com/vercel/bridge/pkg/k8s/meta"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -133,6 +134,170 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 	}
 	if err := ensureService(ctx, client, cfg.TargetNamespace, deployName, svcTargetPort); err != nil {
 		return nil, fmt.Errorf("failed to create service: %w", err)
+	}
+
+	return &CopyResult{
+		DeploymentName: deployName,
+		PodPort:        grpcPort,
+	}, nil
+}
+
+// InNamespaceConfig holds configuration for creating a bridge in the source
+// deployment's own namespace.
+type InNamespaceConfig struct {
+	// SourceNamespace is the namespace where the source deployment lives.
+	SourceNamespace string
+	// SourceDeployment is the name of the Deployment to clone.
+	SourceDeployment string
+	// DeviceID is the KSUID of the developer's device.
+	DeviceID string
+	// ProxyImage is the bridge proxy container image.
+	ProxyImage string
+}
+
+// CreateInNamespace creates a bridge deployment in the same namespace as the
+// source deployment. Unlike CopyAndTransform, it doesn't copy secrets,
+// configmaps, or service accounts — they're already available in the namespace.
+// Pod labels are bridge-specific only so the original ReplicaSet and Service
+// don't target bridge pods.
+func CreateInNamespace(ctx context.Context, client kubernetes.Interface, cfg InNamespaceConfig) (*CopyResult, error) {
+	if cfg.ProxyImage == "" {
+		return nil, fmt.Errorf("proxy image is required")
+	}
+	if cfg.DeviceID == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+
+	srcDeploy, err := client.AppsV1().Deployments(cfg.SourceNamespace).Get(ctx, cfg.SourceDeployment, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, &DeploymentNotFoundError{Name: cfg.SourceDeployment, Namespace: cfg.SourceNamespace}
+		}
+		return nil, fmt.Errorf("failed to get source deployment %s/%s: %w", cfg.SourceNamespace, cfg.SourceDeployment, err)
+	}
+
+	deployName := identity.BridgeResourceName(cfg.DeviceID, srcDeploy.Name)
+	ns := cfg.SourceNamespace
+
+	// Collect all ports from the source deployment's first container.
+	var appPorts []int32
+	if containers := srcDeploy.Spec.Template.Spec.Containers; len(containers) > 0 {
+		for _, p := range containers[0].Ports {
+			appPorts = append(appPorts, p.ContainerPort)
+		}
+	}
+
+	grpcPort := chooseGRPCPort(appPorts)
+
+	// Swap the first (primary app) container for the bridge proxy.
+	if containers := srcDeploy.Spec.Template.Spec.Containers; len(containers) > 0 {
+		c := &containers[0]
+		args := []string{"bridge", "server", "--addr", fmt.Sprintf(":%d", grpcPort)}
+		if len(appPorts) > 0 {
+			var specs []string
+			for _, p := range appPorts {
+				specs = append(specs, fmt.Sprintf("%d/tcp", p))
+			}
+			args = append(args, "--listen-ports", strings.Join(specs, ","))
+		}
+		c.Image = cfg.ProxyImage
+		c.Command = args
+		c.Args = nil
+		c.Ports = []corev1.ContainerPort{
+			{Name: "grpc", ContainerPort: grpcPort, Protocol: corev1.ProtocolTCP},
+		}
+		for _, p := range appPorts {
+			c.Ports = append(c.Ports, corev1.ContainerPort{ContainerPort: p, Protocol: corev1.ProtocolTCP})
+		}
+		c.LivenessProbe = nil
+		c.ReadinessProbe = nil
+		c.StartupProbe = nil
+	}
+
+	// Bridge-specific labels only — NOT the source pod labels, so the
+	// original ReplicaSet and Service selectors don't match bridge pods.
+	podLabels := map[string]string{
+		meta.LabelBridgeType:       meta.BridgeTypeProxy,
+		meta.LabelBridgeDeployment: deployName,
+		meta.LabelDeviceID:         cfg.DeviceID,
+	}
+
+	// Mutate the source deployment into the bridge deployment.
+	replicas := int32(1)
+	srcDeploy.Name = deployName
+	srcDeploy.ResourceVersion = ""
+	srcDeploy.UID = ""
+	srcDeploy.CreationTimestamp = metav1.Time{}
+	srcDeploy.Labels = map[string]string{
+		meta.LabelBridgeType:              meta.BridgeTypeProxy,
+		meta.LabelBridgeDeployment:        deployName,
+		meta.LabelDeviceID:                cfg.DeviceID,
+		meta.LabelWorkloadSource:          cfg.SourceDeployment,
+		meta.LabelWorkloadSourceNamespace: cfg.SourceNamespace,
+	}
+	srcDeploy.Spec.Replicas = &replicas
+	srcDeploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: podLabels}
+	srcDeploy.Spec.Template.ObjectMeta.Labels = podLabels
+
+	existing, err := client.AppsV1().Deployments(ns).Get(ctx, deployName, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		if _, err := client.AppsV1().Deployments(ns).Create(ctx, srcDeploy, metav1.CreateOptions{}); err != nil {
+			return nil, fmt.Errorf("failed to create bridged deployment: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check for existing deployment: %w", err)
+	} else {
+		existing.Spec = srcDeploy.Spec
+		existing.Labels = srcDeploy.Labels
+		if _, err := client.AppsV1().Deployments(ns).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return nil, fmt.Errorf("failed to update bridged deployment: %w", err)
+		}
+	}
+
+	// Create a Service selecting this specific bridge deployment.
+	svcTargetPort := grpcPort
+	if len(appPorts) > 0 {
+		svcTargetPort = appPorts[0]
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deployName,
+			Namespace: ns,
+			Labels: map[string]string{
+				meta.LabelBridgeType:       meta.BridgeTypeProxy,
+				meta.LabelBridgeDeployment: deployName,
+				meta.LabelDeviceID:         cfg.DeviceID,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				meta.LabelBridgeDeployment: deployName,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "main",
+					Port:       80,
+					TargetPort: intstr.FromInt32(svcTargetPort),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
+
+	existingSvc, err := client.CoreV1().Services(ns).Get(ctx, deployName, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		if _, err := client.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+			return nil, fmt.Errorf("failed to create service: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check for existing service: %w", err)
+	} else {
+		existingSvc.Spec.Ports = svc.Spec.Ports
+		existingSvc.Spec.Selector = svc.Spec.Selector
+		existingSvc.Labels = svc.Labels
+		if _, err := client.CoreV1().Services(ns).Update(ctx, existingSvc, metav1.UpdateOptions{}); err != nil {
+			return nil, fmt.Errorf("failed to update service: %w", err)
+		}
 	}
 
 	return &CopyResult{
