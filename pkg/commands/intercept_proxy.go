@@ -23,6 +23,7 @@ type ProxyComponent struct {
 	listener net.Listener
 	port     int
 	registry *conntrack.Registry
+	dnsPort  int
 }
 
 // ProxyConfig holds configuration for starting the proxy component.
@@ -30,6 +31,7 @@ type ProxyConfig struct {
 	Tunnel    plumbing.Tunnel
 	ProxyPort int // 0 = random
 	Registry  *conntrack.Registry
+	DNSPort   int // If >0, redirect all UDP :53 traffic to this port
 }
 
 // StartProxy creates a transparent proxy listener and initializes the tunnel client.
@@ -46,6 +48,7 @@ func StartProxy(cfg ProxyConfig) (*ProxyComponent, error) {
 		listener: listener,
 		port:     addr.Port,
 		registry: cfg.Registry,
+		dnsPort:  cfg.DNSPort,
 	}
 
 	return p, nil
@@ -72,6 +75,17 @@ func (p *ProxyComponent) SetupIptables() error {
 
 		// Jump to our chain from OUTPUT for TCP
 		{"iptables", "-t", "nat", "-A", "OUTPUT", "-d", proxyCIDR, "-p", "tcp", "-j", "BRIDGE_INTERCEPT"},
+	}
+
+	// Redirect all outbound UDP :53 traffic to the local DNS server.
+	// This catches processes like nginx that use their own resolver directive
+	// instead of /etc/resolv.conf. The DNS server's own fallback queries use
+	// TCP, so they are not affected by this rule.
+	if p.dnsPort > 0 {
+		cmds = append(cmds,
+			[]string{"iptables", "-t", "nat", "-A", "BRIDGE_INTERCEPT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", fmt.Sprintf("%d", p.dnsPort)},
+			[]string{"iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "BRIDGE_INTERCEPT"},
+		)
 	}
 
 	for _, args := range cmds {
@@ -154,12 +168,19 @@ func (p *ProxyComponent) handleOutbound(clientConn net.Conn) {
 
 func (p *ProxyComponent) cleanupIptables() {
 	cmds := [][]string{
-		// Remove TCP jump rule
+		// Remove jump rules from OUTPUT
 		{"iptables", "-t", "nat", "-D", "OUTPUT", "-d", proxyCIDR, "-p", "tcp", "-j", "BRIDGE_INTERCEPT"},
-		// Flush and delete our chain
-		{"iptables", "-t", "nat", "-F", "BRIDGE_INTERCEPT"},
-		{"iptables", "-t", "nat", "-X", "BRIDGE_INTERCEPT"},
 	}
+	if p.dnsPort > 0 {
+		cmds = append(cmds,
+			[]string{"iptables", "-t", "nat", "-D", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "BRIDGE_INTERCEPT"},
+		)
+	}
+	cmds = append(cmds,
+		// Flush and delete our chain
+		[]string{"iptables", "-t", "nat", "-F", "BRIDGE_INTERCEPT"},
+		[]string{"iptables", "-t", "nat", "-X", "BRIDGE_INTERCEPT"},
+	)
 
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)

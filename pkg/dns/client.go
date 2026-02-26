@@ -32,7 +32,7 @@ func NewSystemExchangeClient(upstream string) *SystemExchangeClient {
 	}
 	return &SystemExchangeClient{
 		upstream: upstream,
-		client:   &dns.Client{},
+		client:   &dns.Client{Net: "tcp"},
 	}
 }
 

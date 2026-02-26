@@ -164,6 +164,7 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 		DeploymentName:   result.DeploymentName,
 		EnvVars:          envVars,
 		VolumeMountPaths: result.VolumeMountPaths,
+		AppPorts:         result.AppPorts,
 	}, nil
 }
 

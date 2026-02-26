@@ -76,6 +76,8 @@ type CopyResult struct {
 	PodPort int32
 	// VolumeMountPaths are the absolute mount paths from the source application container.
 	VolumeMountPaths []string
+	// AppPorts are the container ports from the source application container.
+	AppPorts []int32
 }
 
 // CopyAndTransform reads a source Deployment, extracts its config dependencies
@@ -142,6 +144,7 @@ func CopyAndTransform(ctx context.Context, client kubernetes.Interface, cfg Copy
 	return &CopyResult{
 		DeploymentName: deployName,
 		PodPort:        grpcPort,
+		AppPorts:       appPorts,
 	}, nil
 }
 
@@ -322,6 +325,7 @@ func CreateInNamespace(ctx context.Context, client kubernetes.Interface, cfg InN
 		DeploymentName:   deployName,
 		PodPort:          grpcPort,
 		VolumeMountPaths: volumeMountPaths,
+		AppPorts:         appPorts,
 	}, nil
 }
 

@@ -51,6 +51,9 @@ message CreateBridgeResponse {
 
   // Absolute mount paths from the source deployment's application container.
   repeated string volume_mount_paths = 6;
+
+  // Container ports from the source deployment's application container.
+  repeated int32 app_ports = 7;
 }
 
 // ListBridgesRequest is sent to query active bridges.

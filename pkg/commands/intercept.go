@@ -168,10 +168,15 @@ func doIntercept(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Start proxy (transparent proxy + tunnel)
+	var dnsPortForIPTables int
+	if dns != nil {
+		dnsPortForIPTables = dns.Port()
+	}
 	proxyComp, err := StartProxy(ProxyConfig{
 		Tunnel:    tun,
 		ProxyPort: proxyPort,
 		Registry:  registry,
+		DNSPort:   dnsPortForIPTables,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start proxy listener: %w", err)

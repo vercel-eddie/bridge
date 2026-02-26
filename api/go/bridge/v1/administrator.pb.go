@@ -111,8 +111,10 @@ type CreateBridgeResponse struct {
 	EnvVars map[string]string `protobuf:"bytes,5,rep,name=env_vars,json=envVars,proto3" json:"env_vars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Absolute mount paths from the source deployment's application container.
 	VolumeMountPaths []string `protobuf:"bytes,6,rep,name=volume_mount_paths,json=volumeMountPaths,proto3" json:"volume_mount_paths,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Container ports from the source deployment's application container.
+	AppPorts      []int32 `protobuf:"varint,7,rep,packed,name=app_ports,json=appPorts,proto3" json:"app_ports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateBridgeResponse) Reset() {
@@ -183,6 +185,13 @@ func (x *CreateBridgeResponse) GetEnvVars() map[string]string {
 func (x *CreateBridgeResponse) GetVolumeMountPaths() []string {
 	if x != nil {
 		return x.VolumeMountPaths
+	}
+	return nil
+}
+
+func (x *CreateBridgeResponse) GetAppPorts() []int32 {
+	if x != nil {
+		return x.AppPorts
 	}
 	return nil
 }
@@ -488,14 +497,15 @@ const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12,\n" +
 	"\x11source_deployment\x18\x02 \x01(\tR\x11source_deployment\x12*\n" +
 	"\x10source_namespace\x18\x03 \x01(\tR\x10source_namespace\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"\xc1\x02\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"\xde\x02\n" +
 	"\x14CreateBridgeResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1a\n" +
 	"\bpod_name\x18\x02 \x01(\tR\bpod_name\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12(\n" +
 	"\x0fdeployment_name\x18\x04 \x01(\tR\x0fdeployment_name\x12G\n" +
 	"\benv_vars\x18\x05 \x03(\v2,.bridge.v1.CreateBridgeResponse.EnvVarsEntryR\aenvVars\x12,\n" +
-	"\x12volume_mount_paths\x18\x06 \x03(\tR\x10volumeMountPaths\x1a:\n" +
+	"\x12volume_mount_paths\x18\x06 \x03(\tR\x10volumeMountPaths\x12\x1b\n" +
+	"\tapp_ports\x18\a \x03(\x05R\bappPorts\x1a:\n" +
 	"\fEnvVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"2\n" +

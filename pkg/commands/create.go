@@ -65,8 +65,7 @@ func Create() *cli.Command {
 			&cli.IntFlag{
 				Name:    "listen",
 				Aliases: []string{"l"},
-				Usage:   "App listening port to forward inbound requests to",
-				Value:   3000,
+				Usage:   "App listening port to forward inbound requests to (defaults to the source deployment's first container port)",
 			},
 			&cli.StringFlag{
 				Name:    "feature-ref",
@@ -267,7 +266,16 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	dcConfigPath, err := generateDevcontainerConfig(p, baseConfig, featureRef, c.Int("listen"), createResp)
+	// Use the user-specified listen port, or fall back to the first app port
+	// from the source deployment, or 3000 as a last resort.
+	appPort := c.Int("listen")
+	if appPort == 0 && len(createResp.AppPorts) > 0 {
+		appPort = int(createResp.AppPorts[0])
+	}
+	if appPort == 0 {
+		appPort = 3000
+	}
+	dcConfigPath, err := generateDevcontainerConfig(p, baseConfig, featureRef, appPort, createResp)
 	if err != nil {
 		return err
 	}

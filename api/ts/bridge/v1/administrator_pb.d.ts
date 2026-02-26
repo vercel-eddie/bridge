@@ -100,6 +100,13 @@ export declare type CreateBridgeResponse = Message<"bridge.v1.CreateBridgeRespon
    * @generated from field: repeated string volume_mount_paths = 6;
    */
   volumeMountPaths: string[];
+
+  /**
+   * Container ports from the source deployment's application container.
+   *
+   * @generated from field: repeated int32 app_ports = 7;
+   */
+  appPorts: number[];
 };
 
 /**
