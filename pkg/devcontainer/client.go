@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Client wraps the devcontainer CLI.
@@ -77,17 +78,23 @@ func (c *Client) ExecOutput(ctx context.Context, cmdArgs []string) (string, erro
 	return string(out), err
 }
 
-// Stop stops the devcontainer by running `docker stop` on the container.
-func (c *Client) Stop(ctx context.Context) error {
-	// devcontainer CLI doesn't have a stop command; use docker stop
-	// with the label devcontainer sets.
+// ContainerID returns the running container ID for this devcontainer.
+func (c *Client) ContainerID(ctx context.Context) (string, error) {
 	label := fmt.Sprintf("devcontainer.local_folder=%s", c.WorkspaceFolder)
 	cmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "label="+label)
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
-		return fmt.Errorf("no running devcontainer found for workspace %s", c.WorkspaceFolder)
+		return "", fmt.Errorf("no running devcontainer found for workspace %s", c.WorkspaceFolder)
 	}
-	containerID := string(out[:len(out)-1]) // trim newline
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Stop stops the devcontainer by running `docker stop` on the container.
+func (c *Client) Stop(ctx context.Context) error {
+	containerID, err := c.ContainerID(ctx)
+	if err != nil {
+		return err
+	}
 	stop := exec.CommandContext(ctx, "docker", "stop", containerID)
 	if stopOut, err := stop.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker stop: %w\n%s", err, stopOut)

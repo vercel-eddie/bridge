@@ -65,6 +65,14 @@ func Intercept() *cli.Command {
 }
 
 func runIntercept(ctx context.Context, c *cli.Command) error {
+	err := doIntercept(ctx, c)
+	if err != nil {
+		slog.Error("Intercept crashed", "error", err)
+	}
+	return err
+}
+
+func doIntercept(ctx context.Context, c *cli.Command) error {
 	serverAddr := c.String("server-addr")
 	proxyPort := c.Int("proxy-port")
 	appPort := c.Int("app-port")
@@ -194,6 +202,9 @@ func runIntercept(ctx context.Context, c *cli.Command) error {
 		slog.Info("Shutting down...")
 		cancel()
 	}()
+
+	// Intercept is fully initialized.
+	slog.Info("Intercept ready")
 
 	// Block until context is cancelled
 	proxyComp.Run(ctx)
