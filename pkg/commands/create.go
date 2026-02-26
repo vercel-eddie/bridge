@@ -127,7 +127,7 @@ func checkDocker(ctx context.Context) error {
 func runCreate(ctx context.Context, c *cli.Command) error {
 	deploymentName := c.StringArg("deployment")
 	sourceNamespace := c.String("namespace")
-	if sourceNamespace == "" && deploymentName != "" {
+	if sourceNamespace == "" {
 		sourceNamespace = currentKubeNamespace()
 	}
 	adminAddr := c.String("admin-addr")

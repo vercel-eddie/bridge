@@ -13,7 +13,6 @@ import (
 	"github.com/vercel/bridge/pkg/identity"
 	"github.com/vercel/bridge/pkg/k8s/kube"
 	"github.com/vercel/bridge/pkg/k8s/meta"
-	"github.com/vercel/bridge/pkg/k8s/namespace"
 	"github.com/vercel/bridge/pkg/k8s/portforward"
 	"github.com/vercel/bridge/pkg/k8s/resources"
 
@@ -118,19 +117,14 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 			return nil, err
 		}
 	} else {
-		// No source deployment — fall back to device namespace with simple deployment.
-		targetNS = identity.NamespaceForDevice(req.DeviceId)
+		// No source deployment — create a simple bridge in the caller's namespace.
+		targetNS = req.SourceNamespace
+		if targetNS == "" {
+			targetNS = "default"
+		}
 		logger = logger.With("namespace", targetNS)
 		logger.Info("Creating simple bridge")
 
-		if err := namespace.EnsureNamespace(ctx, l.client, namespace.CreateConfig{
-			Name:                    targetNS,
-			DeviceID:                req.DeviceId,
-			ServiceAccountName:      l.config.ServiceAccountName,
-			ServiceAccountNamespace: l.config.ServiceAccountNamespace,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to ensure namespace: %w", err)
-		}
 		var err error
 		result, err = resources.CreateSimpleDeployment(ctx, l.client, targetNS, l.config.ProxyImage)
 		if err != nil {

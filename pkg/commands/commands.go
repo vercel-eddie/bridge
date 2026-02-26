@@ -55,6 +55,7 @@ func NewApp() *cli.Command {
 			Intercept(),
 			Create(),
 			Administrator(),
+			Debug(),
 		},
 	}
 }
