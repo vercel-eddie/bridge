@@ -187,12 +187,9 @@ func doIntercept(ctx context.Context, c *cli.Command) error {
 		"proxy_port", proxyComp.Port(),
 	)
 
-	// Set up iptables (TCP redirect for proxy CIDR)
+	// Set up iptables (TCP redirect for proxy CIDR, UDP redirect for DNS)
 	if err := proxyComp.SetupIptables(); err != nil {
-		slog.Warn("Failed to setup iptables",
-			"error", err,
-			"hint", "Traffic interception requires NET_ADMIN capability",
-		)
+		return fmt.Errorf("failed to setup iptables: %w", err)
 	}
 
 	// Create cancellable context for signal handling
@@ -207,6 +204,11 @@ func doIntercept(ctx context.Context, c *cli.Command) error {
 		slog.Info("Shutting down...")
 		cancel()
 	}()
+
+	// Test hook: simulate a crash after full initialization.
+	if os.Getenv("__TEST_FAIL_INTERCEPT") == "true" {
+		return fmt.Errorf("injected test failure")
+	}
 
 	// Intercept is fully initialized.
 	slog.Info("Intercept ready")

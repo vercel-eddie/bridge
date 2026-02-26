@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -295,6 +296,91 @@ func (s *CreateSuite) TestFullstackCreate() {
 	stdinW.Close()
 
 	require.NoError(t, <-errCh, "bridge create --connect failed")
+}
+
+// TestCreateFailsOnInterceptCrash verifies that bridge create --connect fails
+// with an informative error when the intercept process crashes inside the
+// devcontainer. Uses the __TEST_FAIL_INTERCEPT env var to trigger a crash
+// after full initialization.
+func (s *CreateSuite) TestCreateFailsOnInterceptCrash() {
+	t := s.T()
+
+	dir, err := os.MkdirTemp(os.TempDir(), "bridge-crash-test-*")
+	require.NoError(t, err)
+	dir, err = filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+
+	dcDir := filepath.Join(dir, ".devcontainer")
+	require.NoError(t, os.MkdirAll(dcDir, 0755))
+
+	srcFeature := filepath.Join(s.projectRoot, "features", "bridge-feature")
+	dstFeature := filepath.Join(dcDir, "local-features", "bridge-feature")
+	require.NoError(t, copyDir(srcFeature, dstFeature))
+
+	cfg := &devcontainer.Config{
+		Image: "mcr.microsoft.com/devcontainers/base:alpine-3.20",
+		Mounts: []string{
+			fmt.Sprintf("source=%s,target=/usr/local/bin/bridge,type=bind,readonly", s.bridgeBin),
+			fmt.Sprintf("source=%s,target=/tmp/bridge-kubeconfig,type=bind,readonly", s.cluster.InternalKubeConfigPath),
+		},
+		RunArgs: []string{
+			"--network=" + s.cluster.Network.Name,
+			"--privileged",
+		},
+		ContainerEnv: map[string]string{
+			"KUBECONFIG":            "/tmp/bridge-kubeconfig",
+			"__TEST_FAIL_INTERCEPT": "true",
+		},
+	}
+	require.NoError(t, cfg.Save(filepath.Join(dcDir, "devcontainer.json")))
+
+	t.Cleanup(func() {
+		dc := &devcontainer.Client{WorkspaceFolder: dir}
+		_ = dc.Stop(s.ctx)
+		os.RemoveAll(dir)
+	})
+
+	origKubeconfig := os.Getenv("KUBECONFIG")
+	os.Setenv("KUBECONFIG", s.cluster.KubeConfigPath)
+	t.Cleanup(func() {
+		if origKubeconfig != "" {
+			os.Setenv("KUBECONFIG", origKubeconfig)
+		} else {
+			os.Unsetenv("KUBECONFIG")
+		}
+	})
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	_, err = identity.EnsureDeviceID()
+	require.NoError(t, err)
+
+	adminAddr := fmt.Sprintf("k8spf:///%s.%s:9090", s.adminPod.Name, testutil.AdministratorNamespace)
+
+	stdinR, stdinW, err := os.Pipe()
+	require.NoError(t, err)
+	defer stdinW.Close()
+
+	app := commands.NewApp()
+	app.Reader = stdinR
+	app.Writer = io.Discard
+
+	err = app.Run(s.ctx, []string{
+		"bridge", "create", testutil.UserserviceName,
+		"-n", testutil.UserserviceNamespace,
+		"--admin-addr", adminAddr,
+		"--yes",
+		"--connect",
+		"--feature-ref", "../local-features/bridge-feature",
+		"-f", filepath.Join(dir, ".devcontainer", "devcontainer.json"),
+	})
+
+	require.Error(t, err)
+	t.Logf("create error: %v", err)
+	require.Contains(t, err.Error(), "container failed to start")
 }
 
 func TestCreateSuite(t *testing.T) {

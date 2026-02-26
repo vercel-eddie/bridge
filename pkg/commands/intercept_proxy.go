@@ -91,11 +91,7 @@ func (p *ProxyComponent) SetupIptables() error {
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			slog.Debug("iptables command failed",
-				"command", args,
-				"error", err,
-				"output", string(output),
-			)
+			return fmt.Errorf("iptables %v failed: %w: %s", args[1:], err, output)
 		}
 	}
 

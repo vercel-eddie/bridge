@@ -28,6 +28,7 @@ const devFeatureRef = "../local-features/bridge-feature"
 
 const defaultAdminAddr = "k8spf:///administrator.bridge:9090?workload=deployment"
 const defaultProxyImage = "ghcr.io/vercel/bridge-cli:latest"
+const containerLabelKeyBridgeDeployment = "bridge.deployment"
 
 // Create returns the CLI command for creating a bridge.
 func Create() *cli.Command {
@@ -280,7 +281,7 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 	if connectFlag {
-		return startDevcontainer(ctx, p, dcConfigPath, r)
+		return startDevcontainer(ctx, p, dcConfigPath, createResp.DeploymentName, r)
 	}
 
 	return nil
@@ -344,6 +345,7 @@ func generateDevcontainerConfig(p interact.Printer, baseConfigPath, featureRef s
 	}
 	cfg.SetFeature(featureRef, featureOpts)
 	cfg.EnsureCapAdd("NET_ADMIN")
+	cfg.EnsureRunArgs("-l", containerLabelKeyBridgeDeployment+"="+dcName)
 
 	if err := configureDevMounts(cfg); err != nil {
 		return "", err
@@ -482,8 +484,28 @@ func currentKubeContext() string {
 	return rawConfig.CurrentContext
 }
 
+// stopBridgeContainers stops and removes any running containers with the
+// given bridge.deployment label so that port bindings are released before
+// starting a new devcontainer.
+func stopBridgeContainers(ctx context.Context, deploymentName string) {
+	label := containerLabelKeyBridgeDeployment + "=" + deploymentName
+	cmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "label="+label)
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	for _, id := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		slog.Debug("Stopping previous bridge container", "id", id)
+		_ = exec.CommandContext(ctx, "docker", "rm", "-f", id).Run()
+	}
+}
+
 // startDevcontainer starts the devcontainer and attaches an interactive shell.
-func startDevcontainer(ctx context.Context, p interact.Printer, dcConfigPath string, r io.Reader) error {
+func startDevcontainer(ctx context.Context, p interact.Printer, dcConfigPath, deploymentName string, r io.Reader) error {
 	// <workspace>/.devcontainer/bridge-<name>/devcontainer.json → <workspace>
 	workspaceFolder := filepath.Dir(filepath.Dir(filepath.Dir(dcConfigPath)))
 	dcClient := &devcontainer.Client{
@@ -495,6 +517,9 @@ func startDevcontainer(ctx context.Context, p interact.Printer, dcConfigPath str
 	}
 
 	slog.Debug("Starting devcontainer", "config", dcConfigPath, "workspace", workspaceFolder)
+
+	// Stop any existing container for this bridge so ports are released.
+	stopBridgeContainers(ctx, deploymentName)
 
 	sp := interact.NewSpinner("Starting devcontainer...")
 	go sp.Start(ctx)
