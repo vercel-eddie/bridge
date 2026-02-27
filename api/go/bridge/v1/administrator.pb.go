@@ -33,7 +33,10 @@ type CreateBridgeRequest struct {
 	SourceNamespace string `protobuf:"bytes,3,opt,name=source_namespace,proto3" json:"source_namespace,omitempty"`
 	// If true, tear down and recreate an existing bridge for the same deployment
 	// without returning an ALREADY_EXISTS error.
-	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// The container image for the bridge proxy pod. If empty, the server uses
+	// its configured default.
+	ProxyImage    string `protobuf:"bytes,5,opt,name=proxy_image,proto3" json:"proxy_image,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -94,6 +97,13 @@ func (x *CreateBridgeRequest) GetForce() bool {
 		return x.Force
 	}
 	return false
+}
+
+func (x *CreateBridgeRequest) GetProxyImage() string {
+	if x != nil {
+		return x.ProxyImage
+	}
+	return ""
 }
 
 // CreateBridgeResponse is returned by the Administrator after a bridge is provisioned.
@@ -492,12 +502,13 @@ var File_bridge_v1_administrator_proto protoreflect.FileDescriptor
 
 const file_bridge_v1_administrator_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbridge/v1/administrator.proto\x12\tbridge.v1\"\xa3\x01\n" +
+	"\x1dbridge/v1/administrator.proto\x12\tbridge.v1\"\xc5\x01\n" +
 	"\x13CreateBridgeRequest\x12\x1c\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\tdevice_id\x12,\n" +
 	"\x11source_deployment\x18\x02 \x01(\tR\x11source_deployment\x12*\n" +
 	"\x10source_namespace\x18\x03 \x01(\tR\x10source_namespace\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"\xde\x02\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12 \n" +
+	"\vproxy_image\x18\x05 \x01(\tR\vproxy_image\"\xde\x02\n" +
 	"\x14CreateBridgeResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1a\n" +
 	"\bpod_name\x18\x02 \x01(\tR\bpod_name\x12\x12\n" +

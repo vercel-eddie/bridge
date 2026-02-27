@@ -30,6 +30,10 @@ message CreateBridgeRequest {
   // If true, tear down and recreate an existing bridge for the same deployment
   // without returning an ALREADY_EXISTS error.
   bool force = 4;
+
+  // The container image for the bridge proxy pod. If empty, the server uses
+  // its configured default.
+  string proxy_image = 5 [json_name = "proxy_image"];
 }
 
 // CreateBridgeResponse is returned by the Administrator after a bridge is provisioned.

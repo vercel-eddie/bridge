@@ -85,7 +85,6 @@ func runAdministrator(ctx context.Context, c *cli.Command) error {
 	}
 
 	localAdm := admin.NewLocalFromClient(clientset, restCfg, admin.LocalConfig{
-		ProxyImage:              c.String("proxy-image"),
 		ServiceAccountName:      c.String("service-account"),
 		ServiceAccountNamespace: c.String("namespace"),
 	})

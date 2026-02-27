@@ -16,4 +16,6 @@ type Service interface {
 	ListBridges(ctx context.Context, in *bridgev1.ListBridgesRequest) (*bridgev1.ListBridgesResponse, error)
 	// DeleteBridge tears down a specific bridge and its associated resources.
 	DeleteBridge(ctx context.Context, in *bridgev1.DeleteBridgeRequest) (*bridgev1.DeleteBridgeResponse, error)
+	// Close releases any resources held by the service.
+	Close() error
 }

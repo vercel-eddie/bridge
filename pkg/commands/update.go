@@ -20,7 +20,7 @@ const (
 func Update() *cli.Command {
 	return &cli.Command{
 		Name:  "update",
-		Usage: "Update bridge to the latest version",
+		Usage: "Update the bridge CLI to the latest version",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			p := interact.NewPrinter(c.Root().Writer)
 

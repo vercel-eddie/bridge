@@ -45,6 +45,14 @@ export declare type CreateBridgeRequest = Message<"bridge.v1.CreateBridgeRequest
    * @generated from field: bool force = 4;
    */
   force: boolean;
+
+  /**
+   * The container image for the bridge proxy pod. If empty, the server uses
+   * its configured default.
+   *
+   * @generated from field: string proxy_image = 5 [json_name = "proxy_image"];
+   */
+  proxyImage: string;
 };
 
 /**

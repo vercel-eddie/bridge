@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	bridgev1 "github.com/vercel/bridge/api/go/bridge/v1"
-	"github.com/vercel/bridge/pkg/admin"
 	"github.com/vercel/bridge/pkg/devcontainer"
 	"github.com/vercel/bridge/pkg/identity"
 	"github.com/vercel/bridge/pkg/interact"
@@ -153,73 +152,29 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 	kubeContext := currentKubeContext()
 
 	// Step 2: Connect to administrator (remote, with local fallback).
-	var adm admin.Service
-	var existingBridges []*bridgev1.BridgeInfo
+	adm, isLocal, err := connectAdmin(ctx, adminAddr)
+	if err != nil {
+		return err
+	}
+	defer adm.Close()
 
-	listReq := &bridgev1.ListBridgesRequest{DeviceId: deviceID}
-
-	sp := interact.NewSpinner("Connecting to bridge administrator...")
-	go sp.Start(ctx)
-
-	remote, dialErr := admin.NewClient(adminAddr)
-	if dialErr == nil {
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		listResp, probeErr := remote.ListBridges(probeCtx, listReq)
-		cancel()
-		if probeErr == nil {
-			existingBridges = listResp.Bridges
-			adm = remote
-		} else if closer, ok := remote.(io.Closer); ok {
-			closer.Close()
+	if isLocal && !yes {
+		if !confirmLocalFallback(p, r) {
+			p.Println("Aborted.")
+			return nil
 		}
 	}
-	sp.Stop()
-
-	if adm == nil {
-		// Remote admin not available — offer local fallback.
-		if !yes {
-			p.Newline()
-			p.Warn("No bridge administrator found in the cluster.")
-			p.Info(fmt.Sprintf("Should Bridge use your local credentials for cluster %q instead.", kubeContext))
-			p.Prompt("Continue? [y/N] ")
-
-			if answer := promptYN(r); answer != "y" && answer != "yes" {
-				p.Println("Aborted.")
-				return nil
-			}
-		}
-
-		sp = interact.NewSpinner("Initializing local administrator...")
-		go sp.Start(ctx)
-
-		localAdm, localErr := admin.NewService(admin.LocalConfig{
-			ProxyImage: proxyImage,
-		})
-		if localErr != nil {
-			sp.Stop()
-			return fmt.Errorf("failed to initialize: %w", localErr)
-		}
-		adm = localAdm
-		listResp, listErr := localAdm.ListBridges(ctx, listReq)
-		if listErr != nil {
-			slog.Warn("Failed to list existing bridges", "error", listErr)
-		} else {
-			existingBridges = listResp.Bridges
-		}
-
-		sp.Stop()
-	}
-	defer func() {
-		if closer, ok := adm.(io.Closer); ok {
-			closer.Close()
-		}
-	}()
 
 	// Step 3: Check for existing bridges.
+	listResp, err := adm.ListBridges(ctx, &bridgev1.ListBridgesRequest{DeviceId: deviceID})
+	if err != nil {
+		return fmt.Errorf("failed to list bridges: %w", err)
+	}
+
 	// Compute the expected bridge deployment name so we can match by name.
 	expectedName := identity.BridgeResourceName(deviceID, deploymentName)
 	if !yes {
-		for _, bridge := range existingBridges {
+		for _, bridge := range listResp.Bridges {
 			if bridge.DeploymentName == expectedName {
 				p.Newline()
 				p.Warn("An existing bridge already exists:")
@@ -241,7 +196,7 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Step 4: Create bridge.
-	sp = interact.NewSpinner("Creating bridge...")
+	sp := interact.NewSpinner("Creating bridge...")
 	go sp.Start(ctx)
 
 	createResp, err := adm.CreateBridge(ctx, &bridgev1.CreateBridgeRequest{
@@ -249,6 +204,7 @@ func runCreate(ctx context.Context, c *cli.Command) error {
 		SourceDeployment: deploymentName,
 		SourceNamespace:  sourceNamespace,
 		Force:            yes,
+		ProxyImage:       proxyImage,
 	})
 	sp.Stop()
 	if err != nil {

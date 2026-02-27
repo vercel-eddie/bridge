@@ -54,6 +54,8 @@ func NewApp() *cli.Command {
 			Server(),
 			Intercept(),
 			Create(),
+			Get(),
+			Remove(),
 			Administrator(),
 			Debug(),
 			Update(),

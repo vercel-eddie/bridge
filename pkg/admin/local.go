@@ -25,9 +25,6 @@ const defaultProxyImage = "ghcr.io/vercel/bridge-cli:latest"
 
 // LocalConfig configures the local admin implementation.
 type LocalConfig struct {
-	// ProxyImage is the container image for the bridge proxy pod.
-	// Defaults to ghcr.io/vercel/bridge-cli:latest.
-	ProxyImage string
 	// ServiceAccountName is the administrator's SA name for namespace RBAC.
 	// Defaults to "administrator".
 	ServiceAccountName string
@@ -63,9 +60,6 @@ func NewService(cfg LocalConfig) (Service, error) {
 // NewLocalFromClient creates a local Service from an existing Kubernetes client.
 // Used by the administrator server to share the same client.
 func NewLocalFromClient(client kubernetes.Interface, restCfg *rest.Config, cfg LocalConfig) Service {
-	if cfg.ProxyImage == "" {
-		cfg.ProxyImage = defaultProxyImage
-	}
 	if cfg.ServiceAccountName == "" {
 		cfg.ServiceAccountName = "administrator"
 	}
@@ -85,6 +79,11 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 	}
 	if req.SourceDeployment != "" && req.SourceNamespace == "" {
 		return nil, fmt.Errorf("source_namespace is required when source_deployment is set")
+	}
+
+	proxyImage := req.ProxyImage
+	if proxyImage == "" {
+		proxyImage = defaultProxyImage
 	}
 
 	logger := slog.With("device_id", req.DeviceId)
@@ -111,7 +110,7 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 			SourceNamespace:  req.SourceNamespace,
 			SourceDeployment: req.SourceDeployment,
 			DeviceID:         req.DeviceId,
-			ProxyImage:       l.config.ProxyImage,
+			ProxyImage:       proxyImage,
 		})
 		if err != nil {
 			return nil, err
@@ -126,7 +125,7 @@ func (l *adminService) CreateBridge(ctx context.Context, req *bridgev1.CreateBri
 		logger.Info("Creating simple bridge")
 
 		var err error
-		result, err = resources.CreateSimpleDeployment(ctx, l.client, targetNS, l.config.ProxyImage)
+		result, err = resources.CreateSimpleDeployment(ctx, l.client, targetNS, proxyImage)
 		if err != nil {
 			return nil, err
 		}
@@ -177,6 +176,10 @@ func (l *adminService) ListBridges(ctx context.Context, req *bridgev1.ListBridge
 
 	var bridges []*bridgev1.BridgeInfo
 	for _, d := range deploys.Items {
+		status := "pending"
+		if d.Status.ReadyReplicas > 0 {
+			status = "running"
+		}
 		bridges = append(bridges, &bridgev1.BridgeInfo{
 			DeviceId:         req.DeviceId,
 			SourceDeployment: d.Labels[meta.LabelWorkloadSource],
@@ -184,6 +187,7 @@ func (l *adminService) ListBridges(ctx context.Context, req *bridgev1.ListBridge
 			Namespace:        d.Namespace,
 			DeploymentName:   d.Name,
 			CreatedAt:        d.CreationTimestamp.Format(time.RFC3339),
+			Status:           status,
 		})
 	}
 
